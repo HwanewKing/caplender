@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /tmp/design_extract)",
+      "Bash(cp \"C:/Users/udown/.claude/projects/C--Users-udown-Desktop-git-caplender/ccc5cf35-ea08-4322-be48-e228ef0e7951/tool-results/webfetch-1778223817465-ofvmp8.bin\" /tmp/design_extract/design.gz)",
+      "Read(//tmp/**)",
+      "Bash(tar -xzf design.gz)",
+      "Bash(cygpath -w /tmp/design_extract/calture)",
+      "PowerShell(flutter --version 2>&1)",
+      "PowerShell(dart --version 2>&1)",
+      "Bash(xargs -0 sed -i -E 's/\\\\.withOpacity\\\\\\(\\([^\\)]*\\)\\\\\\)/\\\\.withValues\\(alpha: \\\\1\\)/g')"
+    ]
+  }
+}
