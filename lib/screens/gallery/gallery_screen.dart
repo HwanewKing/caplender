@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
-import '../../data/sample_data.dart';
+import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
 import '../../widgets/photo_tile.dart';
+import '../photo_memo_detail.dart';
 
 /// Gallery view with date / category folder toggle.
 /// In category mode, picking a folder pushes a detail screen.
@@ -122,33 +123,59 @@ class _DateGallery extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = galleryItems()
-        .where((g) =>
-            g.date.year == 2027 && g.date.month == 3)
-        .toList();
+    final items = MemoStoreScope.of(context).galleryItems();
+    if (items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(22, 40, 22, 40),
+        child: Center(
+          child: Text(
+            '아직 저장된 사진이 없어요.\nQUICK 버튼으로 첫 사진을 남겨보세요.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.inkMuted,
+              height: 1.5,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Group by year-month, newest first.
+    final groups = <String, List<Event>>{};
+    for (final e in items) {
+      final key =
+          '${e.date.year}-${e.date.month.toString().padLeft(2, '0')}';
+      groups.putIfAbsent(key, () => []).add(e);
+    }
+    final keys = groups.keys.toList()..sort((a, b) => b.compareTo(a));
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '2027년 3월',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.inkSoft,
+          for (final k in keys) ...[
+            Text(
+              '${k.split('-')[0]}년 ${int.parse(k.split('-')[1])}월',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.inkSoft,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            children: items.map((e) => _GalleryCard(ev: e)).toList(),
-          ),
-          const SizedBox(height: 22),
+            const SizedBox(height: 10),
+            GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              children:
+                  groups[k]!.map((e) => _GalleryCard(ev: e)).toList(),
+            ),
+            const SizedBox(height: 22),
+          ],
         ],
       ),
     );
@@ -161,29 +188,34 @@ class _GalleryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
+    return Material(
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFEFE8D6),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x0F000000),
-              blurRadius: 3,
-              offset: Offset(0, 1),
-            ),
-          ],
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          PhotoMemoDetailScreen.route(ev),
         ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            PhotoTile(
-              tone: ev.tone ?? PhotoTone.note,
-              width: double.infinity,
-              height: double.infinity,
-              borderRadius: BorderRadius.zero,
-              elevated: false,
+        borderRadius: BorderRadius.circular(12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFFEFE8D6),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x0F000000),
+                  blurRadius: 3,
+                  offset: Offset(0, 1),
+                ),
+              ],
             ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _CardThumb(
+                  photoPath: ev.photoPath,
+                  tone: ev.tone ?? PhotoTone.note,
+                ),
             Positioned(
               top: 6,
               left: 6,
@@ -195,7 +227,7 @@ class _GalleryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '3.${ev.date.day}',
+                  '${ev.date.month}.${ev.date.day}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 11,
@@ -248,7 +280,9 @@ class _GalleryCard extends StatelessWidget {
                 ),
               ),
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -261,6 +295,7 @@ class _CategoryFolders extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cats = MemoStoreScope.of(context).categoriesWithCount();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 22),
       child: GridView.count(
@@ -270,7 +305,7 @@ class _CategoryFolders extends StatelessWidget {
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
         childAspectRatio: 0.86,
-        children: sampleCategories
+        children: cats
             .map((c) => _FolderCard(cat: c, onTap: () => onPick(c.id)))
             .toList(),
       ),
@@ -311,38 +346,7 @@ class _FolderCard extends StatelessWidget {
                 aspectRatio: 4 / 3,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    color: Color(cat.colorValue),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          top: 8,
-                          left: 8,
-                          right: 32,
-                          child: Container(
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          right: 8,
-                          bottom: 8,
-                          child: Text(
-                            '${cat.count}',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w800,
-                              fontFamily: 'monospace',
-                              color: AppColors.ink.withValues(alpha: 0.4),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: _FolderCover(cat: cat),
                 ),
               ),
               const SizedBox(height: 12),
@@ -377,9 +381,10 @@ class _CategoryDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cat = sampleCategories.firstWhere((c) => c.id == catId);
+    final store = MemoStoreScope.of(context);
+    final cat = store.categoriesWithCount().firstWhere((c) => c.id == catId);
     final items =
-        galleryItems().where((g) => g.categoryId == catId).toList();
+        store.galleryItems().where((g) => g.categoryId == catId).toList();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 22),
       child: Column(
@@ -446,6 +451,122 @@ class _CategoryDetail extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Renders the actual photo when [photoPath] is provided (signed URL fetched
+/// on demand and cached by [MemoStore]); otherwise falls back to the
+/// tone-based placeholder.
+class _CardThumb extends StatelessWidget {
+  final String? photoPath;
+  final PhotoTone tone;
+  const _CardThumb({required this.photoPath, required this.tone});
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = PhotoTile(
+      tone: tone,
+      width: double.infinity,
+      height: double.infinity,
+      borderRadius: BorderRadius.zero,
+      elevated: false,
+    );
+    if (photoPath == null) return placeholder;
+    final store = MemoStoreScope.of(context);
+    return FutureBuilder<String>(
+      future: store.signedUrlFor(photoPath!),
+      builder: (context, snap) {
+        if (!snap.hasData) return placeholder;
+        return Image.network(
+          snap.data!,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorBuilder: (_, _, _) => placeholder,
+        );
+      },
+    );
+  }
+}
+
+/// Folder cover — most recent photo in the category as the background, with
+/// the small folder-tab strip on top and the count pill bottom-right. Falls
+/// back to the category's solid swatch when the folder is empty.
+class _FolderCover extends StatelessWidget {
+  final CategoryItem cat;
+  const _FolderCover({required this.cat});
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = MemoStoreScope.of(context).latestForCategory(cat.id);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (latest?.photoPath != null)
+          _CoverImage(
+            photoPath: latest!.photoPath!,
+            swatchColor: Color(cat.colorValue),
+          )
+        else
+          ColoredBox(color: Color(cat.colorValue)),
+        Positioned(
+          top: 8,
+          left: 8,
+          right: 32,
+          child: Container(
+            height: 12,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xC71F1B16),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '${cat.count}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CoverImage extends StatelessWidget {
+  final String photoPath;
+  final Color swatchColor;
+  const _CoverImage({required this.photoPath, required this.swatchColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = MemoStoreScope.of(context);
+    final swatch = ColoredBox(color: swatchColor);
+    return FutureBuilder<String>(
+      future: store.signedUrlFor(photoPath),
+      builder: (context, snap) {
+        if (!snap.hasData) return swatch;
+        return Image.network(
+          snap.data!,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => swatch,
+        );
+      },
     );
   }
 }

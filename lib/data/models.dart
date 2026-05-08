@@ -20,6 +20,25 @@ class Event {
   /// Only meaningful for photoMemo events.
   final String? categoryId;
 
+  /// Storage path of the captured photo (`{user_id}/{photo_id}.jpg`). Only
+  /// set for photoMemo events that came from the DB; sample events leave it
+  /// null and the UI falls back to the tone-based placeholder.
+  final String? photoPath;
+
+  /// Body of the memo as the user typed/dictated it.
+  final String? memoBody;
+
+  /// "내용" — text the gpt-5.4-nano classifier extracted from the photo.
+  final String? ocrText;
+
+  /// "근거" — short rationale the classifier returned alongside the category.
+  final String? classificationReason;
+
+  /// Raw reminder timestamp from the DB. [remindAt] is the human-readable
+  /// "오전 9:00" string used in lists; this is the precise time the edit
+  /// screen needs to repopulate its picker. Null for sample events.
+  final DateTime? remindAtTime;
+
   const Event({
     required this.id,
     required this.date,
@@ -32,7 +51,27 @@ class Event {
     this.remind = false,
     this.remindAt,
     this.categoryId,
+    this.photoPath,
+    this.memoBody,
+    this.ocrText,
+    this.classificationReason,
+    this.remindAtTime,
   });
+}
+
+/// Fallback tone for a photoMemo whose category came from the classifier.
+PhotoTone toneForCategory(String? categoryId) {
+  switch (categoryId) {
+    case 'receipt':
+      return PhotoTone.receipt;
+    case 'business_card':
+      return PhotoTone.card;
+    case 'other':
+      return PhotoTone.product;
+    case 'memo':
+    default:
+      return PhotoTone.note;
+  }
 }
 
 class CategoryItem {

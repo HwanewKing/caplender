@@ -92,7 +92,7 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
     return SizedBox(
-      height: 60 + bottomPad + 24,
+      height: 60 + bottomPad + 80,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -184,7 +184,7 @@ class _BottomBar extends StatelessWidget {
                   const Positioned(
                     top: -22,
                     child: Text(
-                      'QUICK',
+                      'Photo',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,

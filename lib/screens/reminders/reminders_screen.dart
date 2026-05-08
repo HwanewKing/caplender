@@ -1,18 +1,37 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
-import '../../data/sample_data.dart';
+import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
 import '../../widgets/photo_tile.dart';
+import '../photo_memo_detail.dart';
+
+/// When the alarm actually fires:
+/// - photoMemo with a real `remindAtTime` → use that timestamp.
+/// - sample photoMemo / birthday without one → fall back to that day's 8 AM.
+DateTime _reminderMoment(Event r) {
+  if (r.remindAtTime != null) return r.remindAtTime!;
+  return DateTime(r.date.year, r.date.month, r.date.day, 8, 0);
+}
 
 class RemindersScreen extends StatelessWidget {
   const RemindersScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final all = remindersList();
-    final upcoming = all.where((r) => r.date.day >= kToday.day).toList();
-    final past = all.where((r) => r.date.day < kToday.day).toList();
+    final all = MemoStoreScope.of(context).remindersList();
+    final now = DateTime.now();
+    bool isPast(Event r) => _reminderMoment(r).isBefore(now);
+    final upcoming = all.where((r) => !isPast(r)).toList()
+      ..sort((a, b) => _reminderMoment(a).compareTo(_reminderMoment(b)));
+    final past = all.where(isPast).toList()
+      ..sort((a, b) => _reminderMoment(b).compareTo(_reminderMoment(a)));
+    final nextLabel = upcoming.isEmpty
+        ? '예정된 알림이 없어요'
+        : () {
+            final m = _reminderMoment(upcoming.first);
+            return '가장 가까운 알림: ${m.month}월 ${m.day}일';
+          }();
 
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 100),
@@ -78,9 +97,9 @@ class RemindersScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        '가장 가까운 알림: 3월 25일',
-                        style: TextStyle(
+                      Text(
+                        nextLabel,
+                        style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.inkMuted,
                         ),
@@ -141,16 +160,29 @@ class _ReminderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final moment = _reminderMoment(r);
+    final tappable = r.kind == EventKind.photoMemo;
     return Opacity(
       opacity: past ? 0.55 : 1,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
+      child: Material(
+        color: Colors.white,
+        // Use `shape` (which carries its own borderRadius) so we can also
+        // paint the soft border in one go — Material rejects the
+        // borderRadius+shape combo.
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.borderSoft),
+          side: const BorderSide(color: AppColors.borderSoft),
         ),
-        child: Row(
+        child: InkWell(
+          onTap: tappable
+              ? () => Navigator.of(context).push(
+                    PhotoMemoDetailScreen.route(r),
+                  )
+              : null,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
           children: [
             Container(
               width: 54,
@@ -164,7 +196,7 @@ class _ReminderRow extends StatelessWidget {
               child: Column(
                 children: [
                   Text(
-                    '${r.date.month}월',
+                    '${moment.month}월',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -176,7 +208,7 @@ class _ReminderRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${r.date.day}',
+                    '${moment.day}',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -245,17 +277,23 @@ class _ReminderRow extends StatelessWidget {
             Container(
               width: 36,
               height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFFF4EFE3),
+              decoration: BoxDecoration(
+                color: tappable
+                    ? AppColors.coralSoft
+                    : const Color(0xFFF4EFE3),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.chevron_right,
-                size: 16,
-                color: AppColors.inkSoft,
+                size: 18,
+                color: tappable
+                    ? const Color(0xFF9C3F3A)
+                    : AppColors.inkSoft,
               ),
             ),
           ],
+        ),
+      ),
         ),
       ),
     );

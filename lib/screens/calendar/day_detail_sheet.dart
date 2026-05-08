@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../app.dart';
 import '../../data/models.dart';
-import '../../data/sample_data.dart';
+import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
 import '../../widgets/photo_tile.dart';
+import '../photo_memo_detail.dart';
 
 /// Bottom sheet shown when tapping a day cell. Lists every event for that day
 /// with mocked handwritten memo bodies, plus two action buttons in the footer.
@@ -20,7 +21,7 @@ class DayDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final events = eventsForDate(day);
+    final events = MemoStoreScope.of(context).eventsForDate(day);
     final weekday = ['일', '월', '화', '수', '목', '금', '토'][day.weekday % 7];
 
     return DraggableScrollableSheet(
@@ -293,27 +294,27 @@ class _EventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (ev.kind) {
       case EventKind.photoMemo:
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
+        return Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          shadowColor: const Color(0x0A000000),
+          elevation: 1,
+          child: InkWell(
+            onTap: () => Navigator.of(context).push(
+              PhotoMemoDetailScreen.route(ev),
+            ),
             borderRadius: BorderRadius.circular(18),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x0A000000),
-                blurRadius: 3,
-                offset: Offset(0, 1),
-              ),
-            ],
-          ),
-          child: Row(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              PhotoTile(
+              _ThumbOrPlaceholder(
+                photoPath: ev.photoPath,
                 tone: ev.tone ?? PhotoTone.note,
                 width: 68,
                 height: 68,
-                borderRadius: BorderRadius.circular(10),
+                radius: BorderRadius.circular(10),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -363,7 +364,9 @@ class _EventCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      memoBodies[ev.id] ?? ev.title,
+                      (ev.memoBody?.trim().isNotEmpty ?? false)
+                          ? ev.memoBody!
+                          : ev.title,
                       style: gaeguStyle(
                         size: 17,
                         color: AppColors.inkSoft,
@@ -373,6 +376,8 @@ class _EventCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
           ),
         );
       case EventKind.schedule:
@@ -414,6 +419,51 @@ class _EventCard extends StatelessWidget {
           tagFg: const Color(0xFF5C7AA0),
         );
     }
+  }
+}
+
+/// Renders the actual photo via a signed URL when [photoPath] is provided,
+/// otherwise falls back to the tone-based placeholder used by sample data.
+class _ThumbOrPlaceholder extends StatelessWidget {
+  final String? photoPath;
+  final PhotoTone tone;
+  final double width;
+  final double height;
+  final BorderRadius radius;
+  const _ThumbOrPlaceholder({
+    required this.photoPath,
+    required this.tone,
+    required this.width,
+    required this.height,
+    required this.radius,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = PhotoTile(
+      tone: tone,
+      width: width,
+      height: height,
+      borderRadius: radius,
+    );
+    if (photoPath == null) return placeholder;
+    final store = MemoStoreScope.of(context);
+    return FutureBuilder<String>(
+      future: store.signedUrlFor(photoPath!),
+      builder: (context, snap) {
+        if (!snap.hasData) return placeholder;
+        return ClipRRect(
+          borderRadius: radius,
+          child: Image.network(
+            snap.data!,
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => placeholder,
+          ),
+        );
+      },
+    );
   }
 }
 

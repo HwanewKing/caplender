@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app.dart';
-import '../../data/sample_data.dart';
+import '../../data/categories.dart';
 import '../../services/memo_repository.dart';
+import '../../services/memo_store.dart';
 import '../../services/photo_capture_service.dart';
 import '../../theme/colors.dart';
 import '../../widgets/app_toggle.dart';
+import '../../widgets/datetime_pickers.dart';
 import '../../widgets/photo_tile.dart';
 
 enum _Step { camera, review, memo, done }
@@ -584,12 +586,17 @@ class _ReviewView extends StatelessWidget {
                       ),
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            '이 사진으로 기록하기',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
+                          Flexible(
+                            child: Text(
+                              '이 사진으로 기록하기',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                           SizedBox(width: 6),
@@ -635,7 +642,10 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
   final TextEditingController _memoCtrl = TextEditingController();
   String _category = 'memo';
   bool _remind = false;
-  String _remindWhen = '내일 오전 9:00';
+  // Inline default so hot reload doesn't trip LateInitializationError on
+  // an existing state instance — initState replaces it with the real value.
+  DateTime _remindAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _activePreset;
 
   bool _processing = true;
   String? _photoPath;
@@ -646,6 +656,8 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
   @override
   void initState() {
     super.initState();
+    _remindAt = parseRemindPreset('내일 오전 9:00');
+    _activePreset = '내일 오전 9:00';
     _process();
   }
 
@@ -709,8 +721,12 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
         ocrText: _classification?.content,
         classificationReason: _classification?.reason,
         remind: _remind,
-        remindAt: _remind ? parseRemindPreset(_remindWhen) : null,
+        remindAt: _remind ? _remindAt : null,
       );
+      if (!mounted) return;
+      // Pull the new row into the in-memory store so the calendar /
+      // gallery / reminders rebuild before the "saved" view is dismissed.
+      await MemoStoreScope.of(context).refresh();
       if (!mounted) return;
       widget.onSaved();
     } catch (e) {
@@ -825,7 +841,7 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final c in sampleCategories)
+                        for (final c in appCategories)
                           GestureDetector(
                             onTap: () => setState(() => _category = c.id),
                             child: Container(
@@ -918,7 +934,7 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
                                   const SizedBox(height: 2),
                                   Text(
                                     _remind
-                                        ? '$_remindWhen에 알림'
+                                        ? '${formatRemindLabel(_remindAt)}에 알림'
                                         : '알림이 꺼져 있어요',
                                     style: const TextStyle(
                                       fontSize: 12,
@@ -950,33 +966,35 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
                                   '1주일 뒤'
                                 ])
                                   GestureDetector(
-                                    onTap: () =>
-                                        setState(() => _remindWhen = w),
+                                    onTap: () => setState(() {
+                                      _remindAt = parseRemindPreset(w);
+                                      _activePreset = w;
+                                    }),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 12, vertical: 6),
                                       decoration: BoxDecoration(
-                                        color: _remindWhen == w
+                                        color: _activePreset == w
                                             ? AppColors.coralSoft
                                             : Colors.white,
                                         borderRadius:
                                             BorderRadius.circular(999),
                                         border: Border.all(
-                                          color: _remindWhen == w
+                                          color: _activePreset == w
                                               ? AppColors.coral
                                               : AppColors.border,
                                           width:
-                                              _remindWhen == w ? 1.5 : 1,
+                                              _activePreset == w ? 1.5 : 1,
                                         ),
                                       ),
                                       child: Text(
                                         w,
                                         style: TextStyle(
                                           fontSize: 13,
-                                          fontWeight: _remindWhen == w
+                                          fontWeight: _activePreset == w
                                               ? FontWeight.w600
                                               : FontWeight.w500,
-                                          color: _remindWhen == w
+                                          color: _activePreset == w
                                               ? const Color(0xFF9C3F3A)
                                               : AppColors.inkSoft,
                                         ),
@@ -984,6 +1002,17 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
                                     ),
                                   ),
                               ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 52),
+                            child: DateTimePickers(
+                              value: _remindAt,
+                              onChanged: (next) => setState(() {
+                                _remindAt = next;
+                                _activePreset = null;
+                              }),
                             ),
                           ),
                         ],

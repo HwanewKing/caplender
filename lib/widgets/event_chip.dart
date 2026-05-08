@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../data/models.dart';
+import '../services/memo_store.dart';
 import '../theme/colors.dart';
 import 'photo_tile.dart';
 
-/// One chip rendered inside a calendar day cell. Mirrors the design's
-/// EventChip — colour and content depend on the event kind.
+/// One chip rendered inside a calendar day cell. For photoMemo events the
+/// caller picks a view: `capture` (just the photo thumbnail, no border)
+/// when the cell's date is the memo's capture day, or `reminder` (bell
+/// emoji + title) when the cell's date is the memo's reminder day.
 class EventChip extends StatelessWidget {
   final Event event;
-  const EventChip({super.key, required this.event});
+  final bool reminderView;
+  const EventChip({
+    super.key,
+    required this.event,
+    this.reminderView = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,41 +42,9 @@ class EventChip extends StatelessWidget {
           text: event.title,
         );
       case EventKind.photoMemo:
-        final reminding = event.remind;
-        return Container(
-          decoration: BoxDecoration(
-            color: reminding ? AppColors.pinkSoft : const Color(0xFFEEE8DA),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          padding: const EdgeInsets.all(2),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              PhotoTile(
-                tone: event.tone ?? PhotoTone.note,
-                width: 14,
-                height: 14,
-                borderRadius: BorderRadius.circular(2),
-                elevated: false,
-              ),
-              const SizedBox(width: 3),
-              Flexible(
-                child: Text(
-                  reminding ? '리마인드' : event.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: reminding
-                        ? const Color(0xFF9C3F3A)
-                        : AppColors.inkSoft,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
+        return reminderView
+            ? _ReminderBellChip(event: event)
+            : _CaptureThumb(event: event);
     }
   }
 
@@ -95,6 +71,83 @@ class EventChip extends StatelessWidget {
           fontWeight: FontWeight.w500,
           color: textColor,
         ),
+      ),
+    );
+  }
+}
+
+/// Capture-day view — just the photo thumbnail, no decoration. Falls back
+/// to the tone-based placeholder when no path is set or while the signed
+/// URL is being fetched.
+class _CaptureThumb extends StatelessWidget {
+  final Event event;
+  const _CaptureThumb({required this.event});
+
+  static const double _size = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = event.tone ?? PhotoTone.note;
+    final placeholder = PhotoTile(
+      tone: tone,
+      width: _size,
+      height: _size,
+      borderRadius: BorderRadius.circular(4),
+      elevated: false,
+    );
+    if (event.photoPath == null) return placeholder;
+    final store = MemoStoreScope.of(context);
+    return FutureBuilder<String>(
+      future: store.signedUrlFor(event.photoPath!),
+      builder: (context, snap) {
+        if (!snap.hasData) return placeholder;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Image.network(
+            snap.data!,
+            width: _size,
+            height: _size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => placeholder,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Reminder-day view — bell emoji + memo title on a soft coral pill. No
+/// photo: the user already saw the photo on the capture day.
+class _ReminderBellChip extends StatelessWidget {
+  final Event event;
+  const _ReminderBellChip({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.coralSoft,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('🔔', style: TextStyle(fontSize: 10)),
+          const SizedBox(width: 3),
+          Flexible(
+            child: Text(
+              event.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9C3F3A),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Supabase + signed-URL image fetches need network. Without this
+         the release build hangs forever on the splash screen because every
+         HTTP call silently fails. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- image_picker — camera capture and gallery pick. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="caplender"
         android:name="${applicationName}"

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'data/models.dart';
 import 'screens/home_shell.dart';
 import 'services/auth_service.dart';
+import 'services/memo_store.dart';
 import 'theme/app_settings.dart';
 import 'theme/colors.dart';
 
@@ -19,10 +20,12 @@ class CaplenderApp extends StatefulWidget {
 
 class _CaplenderAppState extends State<CaplenderApp> {
   final AuthService _auth = AuthService();
+  final MemoStore _memoStore = MemoStore();
 
   @override
   void dispose() {
     _auth.dispose();
+    _memoStore.dispose();
     widget.settings.dispose();
     super.dispose();
   }
@@ -33,23 +36,39 @@ class _CaplenderAppState extends State<CaplenderApp> {
       settings: widget.settings,
       child: AuthScope(
         service: _auth,
-        child: AnimatedBuilder(
-          animation: widget.settings,
-          builder: (context, _) {
-            return MaterialApp(
-              title: 'caplender',
-              debugShowCheckedModeBanner: false,
-              theme: _buildTheme(widget.settings),
-              home: const HomeShell(),
-            );
-          },
+        child: MemoStoreScope(
+          store: _memoStore,
+          child: AnimatedBuilder(
+            animation: widget.settings,
+            builder: (context, _) {
+              return MaterialApp(
+                title: 'caplender',
+                debugShowCheckedModeBanner: false,
+                theme: _buildTheme(widget.settings),
+                // Scale all text via MediaQuery so we don't have to mutate
+                // the TextTheme — some Material 3 styles legitimately have
+                // null fontSize, and TextStyle.apply asserts when a null
+                // fontSize is combined with a factor != 1.0.
+                builder: (context, child) {
+                  final scale = widget.settings.fontScale.multiplier;
+                  return MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      textScaler: TextScaler.linear(scale),
+                    ),
+                    child: child!,
+                  );
+                },
+                home: const HomeShell(),
+              );
+            },
+          ),
         ),
       ),
     );
   }
 
   ThemeData _buildTheme(AppSettings s) {
-    final base = ThemeData(
+    return ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
         seedColor: s.accent,
@@ -61,13 +80,6 @@ class _CaplenderAppState extends State<CaplenderApp> {
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
     );
-    final scale = s.fontScale.multiplier;
-    final textTheme = base.textTheme.apply(
-      bodyColor: AppColors.ink,
-      displayColor: AppColors.ink,
-      fontSizeFactor: scale,
-    );
-    return base.copyWith(textTheme: textTheme);
   }
 }
 

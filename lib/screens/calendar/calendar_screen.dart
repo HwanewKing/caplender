@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../data/sample_data.dart';
+import '../../data/models.dart';
+import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
 import '../../widgets/event_chip.dart';
 
@@ -15,8 +16,8 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  int _year = kViewYear;
-  int _month = kViewMonth;
+  int _year = DateTime.now().year;
+  int _month = DateTime.now().month;
 
   void _prev() {
     setState(() {
@@ -71,7 +72,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             BorderSide(color: AppColors.borderSoft, width: 1),
                       ),
               ),
-              constraints: const BoxConstraints(minHeight: 92),
+              constraints: const BoxConstraints(minHeight: 124),
               child: IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -95,6 +96,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         child: _DayCell(
                           cell: week[ci],
                           column: ci,
+                          captures: MemoStoreScope.of(context)
+                              .capturesOnDate(week[ci].date),
+                          reminders: MemoStoreScope.of(context)
+                              .remindersOnDate(week[ci].date),
                           onTap: () => widget.onDayTap(week[ci].date),
                         ),
                       ),
@@ -217,20 +222,24 @@ class _WeekHeader extends StatelessWidget {
 class _DayCell extends StatelessWidget {
   final CalendarCell cell;
   final int column;
+  final List<Event> captures;
+  final List<Event> reminders;
   final VoidCallback onTap;
   const _DayCell({
     required this.cell,
     required this.column,
+    required this.captures,
+    required this.reminders,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final events = eventsForDate(cell.date);
+    final today = DateTime.now();
     final isToday = cell.inMonth &&
-        cell.year == kToday.year &&
-        cell.month == kToday.month &&
-        cell.day == kToday.day;
+        cell.year == today.year &&
+        cell.month == today.month &&
+        cell.day == today.day;
     final dayColor = column == 0
         ? AppColors.sun
         : column == 6
@@ -282,31 +291,32 @@ class _DayCell extends StatelessWidget {
                           ),
                         ),
                       ),
-                    if (cell.lunar != null)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 2, top: 4),
-                        child: Text(
-                          cell.lunar!,
-                          style: const TextStyle(
-                            fontSize: 9,
-                            color: AppColors.inkFaint,
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),
               const SizedBox(height: 2),
-              for (final ev in events.take(3))
+              if (captures.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Wrap(
+                    spacing: 2,
+                    runSpacing: 2,
+                    children: [
+                      for (final ev in captures.take(4))
+                        EventChip(event: ev),
+                    ],
+                  ),
+                ),
+              for (final ev in reminders.take(2))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 2),
-                  child: EventChip(event: ev),
+                  child: EventChip(event: ev, reminderView: true),
                 ),
-              if (events.length > 3)
+              if (captures.length > 4 || reminders.length > 2)
                 Padding(
                   padding: const EdgeInsets.only(left: 3),
                   child: Text(
-                    '+${events.length - 3}',
+                    '+${(captures.length - 4).clamp(0, captures.length) + (reminders.length - 2).clamp(0, reminders.length)}',
                     style: const TextStyle(
                       fontSize: 9,
                       color: AppColors.inkMuted,
@@ -319,4 +329,90 @@ class _DayCell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// One cell in the month grid. `inMonth` is false for the leading/trailing
+/// padding cells from the previous and next months, so the screen can
+/// render them dimmed.
+class CalendarCell {
+  final int year;
+  final int month; // 1-indexed
+  final int day;
+  final bool inMonth;
+  final int weekIdx;
+  final int weekNum;
+
+  const CalendarCell({
+    required this.year,
+    required this.month,
+    required this.day,
+    required this.inMonth,
+    required this.weekIdx,
+    required this.weekNum,
+  });
+
+  DateTime get date => DateTime(year, month, day);
+}
+
+/// Build a 7×N grid for the given (year, month). Leading days come from the
+/// previous month and trailing days from the next month, so every row has
+/// exactly 7 cells.
+List<CalendarCell> buildMonthCells(int year, int month) {
+  final first = DateTime(year, month, 1);
+  // Dart: Monday = 1 .. Sunday = 7. Calendar header is Sunday-first.
+  final startDay = first.weekday % 7;
+  final daysInMonth = DateTime(year, month + 1, 0).day;
+  final prevMonthDays = DateTime(year, month, 0).day;
+
+  final cells = <CalendarCell>[];
+
+  for (int i = startDay - 1; i >= 0; i--) {
+    final prevMonth = month == 1 ? 12 : month - 1;
+    final prevYear = month == 1 ? year - 1 : year;
+    cells.add(CalendarCell(
+      year: prevYear,
+      month: prevMonth,
+      day: prevMonthDays - i,
+      inMonth: false,
+      weekIdx: 0,
+      weekNum: 0,
+    ));
+  }
+  for (int d = 1; d <= daysInMonth; d++) {
+    cells.add(CalendarCell(
+      year: year,
+      month: month,
+      day: d,
+      inMonth: true,
+      weekIdx: 0,
+      weekNum: 0,
+    ));
+  }
+  while (cells.length % 7 != 0) {
+    final last = cells.last;
+    final nextDay = last.inMonth ? 1 : last.day + 1;
+    final nextMonth = last.inMonth ? (month == 12 ? 1 : month + 1) : last.month;
+    final nextYear = last.inMonth && month == 12 ? year + 1 : last.year;
+    cells.add(CalendarCell(
+      year: nextYear,
+      month: nextMonth,
+      day: nextDay,
+      inMonth: false,
+      weekIdx: 0,
+      weekNum: 0,
+    ));
+  }
+
+  return List.generate(cells.length, (i) {
+    final c = cells[i];
+    final wIdx = i ~/ 7;
+    return CalendarCell(
+      year: c.year,
+      month: c.month,
+      day: c.day,
+      inMonth: c.inMonth,
+      weekIdx: wIdx,
+      weekNum: 9 + wIdx,
+    );
+  });
 }
