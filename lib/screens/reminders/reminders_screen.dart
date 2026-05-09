@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/models.dart';
 import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
-import '../../widgets/photo_tile.dart';
+import '../../widgets/stored_photo.dart';
 import '../photo_memo_detail.dart';
 
 /// When the alarm actually fires:
@@ -223,8 +223,9 @@ class _ReminderRow extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             if (r.kind == EventKind.photoMemo)
-              PhotoTile(
-                tone: r.tone ?? PhotoTone.note,
+              StoredPhoto(
+                photoPath: r.photoPath,
+                tone: r.tone ?? toneForCategory(r.categoryId),
                 width: 48,
                 height: 48,
                 borderRadius: BorderRadius.circular(10),

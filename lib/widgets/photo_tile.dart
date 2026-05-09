@@ -218,6 +218,94 @@ class _PhotoTonePainter extends CustomPainter {
       old.tone != tone || old.palette != palette;
 }
 
+/// Placeholder for a text-only memo — same tone palette as [PhotoTile] so
+/// it sits comfortably alongside photo thumbnails, but with a large "T"
+/// letter and a notepad-style top accent bar so it reads as a written
+/// memo rather than a photo.
+class TextMemoTile extends StatelessWidget {
+  final PhotoTone tone;
+  final double width;
+  final double height;
+  final BorderRadius? borderRadius;
+  final bool elevated;
+
+  const TextMemoTile({
+    super.key,
+    this.tone = PhotoTone.note,
+    this.width = 36,
+    this.height = 36,
+    this.borderRadius,
+    this.elevated = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = borderRadius ?? BorderRadius.circular(4);
+    final palette = _palettes[tone]!;
+
+    final tile = ClipRRect(
+      borderRadius: radius,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: palette.bg),
+          // Notepad-style top accent.
+          Align(
+            alignment: Alignment.topCenter,
+            child: FractionallySizedBox(
+              widthFactor: 1,
+              heightFactor: 0.16,
+              child: ColoredBox(color: palette.accent.withValues(alpha: 0.55)),
+            ),
+          ),
+          // Centered T letter.
+          Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: EdgeInsets.only(top: height * 0.04),
+                child: Text(
+                  'T',
+                  style: TextStyle(
+                    fontSize: height * 0.62,
+                    fontWeight: FontWeight.w800,
+                    color: palette.accent,
+                    height: 1,
+                    letterSpacing: -1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      width: width,
+      height: height,
+      decoration: elevated
+          ? BoxDecoration(
+              borderRadius: radius,
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0A000000),
+                  blurRadius: 0,
+                  offset: Offset(0, 1),
+                ),
+                BoxShadow(
+                  color: Color(0x0F000000),
+                  blurRadius: 2,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            )
+          : null,
+      child: tile,
+    );
+  }
+}
+
 /// Larger framed photo used in QuickPhoto review. Adds a label pill overlay.
 /// Pass [bytes] to render an actual captured image; otherwise the placeholder
 /// painter for [tone] is shown.

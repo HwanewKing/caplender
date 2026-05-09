@@ -5,8 +5,8 @@ import '../data/categories.dart';
 import '../data/models.dart';
 import '../services/memo_store.dart';
 import '../theme/colors.dart';
-import '../widgets/datetime_pickers.dart';
-import '../widgets/photo_tile.dart';
+import '../utils/date_format.dart';
+import '../widgets/stored_photo.dart';
 import 'photo_memo_edit.dart';
 
 /// Read-only detail view for a single photo memo. Reachable from a tap on
@@ -119,9 +119,8 @@ class _PhotoMemoDetailScreenState extends State<PhotoMemoDetailScreen> {
     final body = (ev.memoBody?.trim().isNotEmpty ?? false)
         ? ev.memoBody!.trim()
         : '';
-    final weekday = ['일', '월', '화', '수', '목', '금', '토'][ev.date.weekday % 7];
-    final dateLabel =
-        '${ev.date.year}년 ${ev.date.month}월 ${ev.date.day}일 ($weekday)';
+    final dateLabel = '${ev.date.year}년 ${ev.date.month}월 ${ev.date.day}일 '
+        '(${koreanWeekdaySunFirst(ev.date)})';
     final canEditOrDelete = (_wasDbEvent ?? false) && !_deleting;
 
     return Scaffold(
@@ -187,23 +186,6 @@ class _PhotoMemoDetailScreenState extends State<PhotoMemoDetailScreen> {
                         style: gaeguStyle(
                           size: 18,
                           color: AppColors.inkSoft,
-                        ),
-                      ),
-                    ),
-                  if (ev.ocrText?.trim().isNotEmpty ?? false)
-                    _Section(
-                      label: '자동 인식',
-                      iconLeading: const Icon(
-                        Icons.auto_awesome,
-                        size: 14,
-                        color: AppColors.teal,
-                      ),
-                      child: Text(
-                        ev.ocrText!.trim(),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.5,
-                          color: AppColors.ink,
                         ),
                       ),
                     ),
@@ -283,49 +265,15 @@ class _PhotoView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = AspectRatio(
-      aspectRatio: 4 / 3,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: PhotoTile(
-          tone: tone,
-          width: double.infinity,
-          height: double.infinity,
-          borderRadius: BorderRadius.zero,
-          elevated: false,
-        ),
-      ),
-    );
-    if (photoPath == null) return placeholder;
-    final store = MemoStoreScope.of(context);
     return AspectRatio(
       aspectRatio: 4 / 3,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: FutureBuilder<String>(
-          future: store.signedUrlFor(photoPath!),
-          builder: (context, snap) {
-            if (!snap.hasData) {
-              return PhotoTile(
-                tone: tone,
-                width: double.infinity,
-                height: double.infinity,
-                borderRadius: BorderRadius.zero,
-                elevated: false,
-              );
-            }
-            return Image.network(
-              snap.data!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => PhotoTile(
-                tone: tone,
-                width: double.infinity,
-                height: double.infinity,
-                borderRadius: BorderRadius.zero,
-                elevated: false,
-              ),
-            );
-          },
+        child: StoredPhoto(
+          photoPath: photoPath,
+          tone: tone,
+          width: double.infinity,
+          height: double.infinity,
         ),
       ),
     );

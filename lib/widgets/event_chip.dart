@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../data/models.dart';
-import '../services/memo_store.dart';
 import '../theme/colors.dart';
-import 'photo_tile.dart';
+import 'stored_photo.dart';
 
 /// One chip rendered inside a calendar day cell. For photoMemo events the
 /// caller picks a view: `capture` (just the photo thumbnail, no border)
@@ -87,31 +86,12 @@ class _CaptureThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = event.tone ?? PhotoTone.note;
-    final placeholder = PhotoTile(
-      tone: tone,
+    return StoredPhoto(
+      photoPath: event.photoPath,
+      tone: event.tone ?? PhotoTone.note,
       width: _size,
       height: _size,
       borderRadius: BorderRadius.circular(4),
-      elevated: false,
-    );
-    if (event.photoPath == null) return placeholder;
-    final store = MemoStoreScope.of(context);
-    return FutureBuilder<String>(
-      future: store.signedUrlFor(event.photoPath!),
-      builder: (context, snap) {
-        if (!snap.hasData) return placeholder;
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: Image.network(
-            snap.data!,
-            width: _size,
-            height: _size,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => placeholder,
-          ),
-        );
-      },
     );
   }
 }

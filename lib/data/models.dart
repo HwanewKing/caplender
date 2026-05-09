@@ -28,7 +28,8 @@ class Event {
   /// Body of the memo as the user typed/dictated it.
   final String? memoBody;
 
-  /// "내용" — text the gpt-5.4-nano classifier extracted from the photo.
+  /// "내용" — text the classifier (Edge Function → OpenAI) extracted from
+  /// the photo.
   final String? ocrText;
 
   /// "근거" — short rationale the classifier returned alongside the category.

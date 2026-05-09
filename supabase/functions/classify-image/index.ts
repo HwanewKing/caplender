@@ -3,9 +3,8 @@
 //
 // Receives { photoPath } from an authenticated client. Verifies the JWT,
 // confirms the photo path belongs to that user, downloads the image from
-// Storage using the service-role key, and forwards it to OpenAI gpt-5.4-nano
-// with the PRD's classification prompt. Returns parsed { category, reason,
-// content }.
+// Storage using the service-role key, and forwards it to OpenAI with the
+// PRD's classification prompt. Returns parsed { category, reason, content }.
 //
 // Required secrets (set via Dashboard → Edge Functions → Secrets, or
 // `supabase secrets set KEY=VALUE`):
@@ -48,6 +47,10 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+
+// Hard cap on the OpenAI call so a slow / hung request doesn't keep the
+// client waiting indefinitely.
+const OPENAI_TIMEOUT_MS = 30_000;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -111,29 +114,45 @@ serve(async (req) => {
     );
 
     // OpenAI Chat Completions with vision.
-    const oaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: PROMPT },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: { url: `data:${mimeType};base64,${base64}` },
-              },
-            ],
-          },
-        ],
-        max_completion_tokens: 800,
-      }),
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS);
+    let oaiRes: Response;
+    try {
+      oaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: PROMPT },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: { url: `data:${mimeType};base64,${base64}` },
+                },
+              ],
+            },
+          ],
+          // `gpt-4o-mini` and other Chat Completions models accept `max_tokens`.
+          // Reasoning models (o1/o3) use `max_completion_tokens` instead — if
+          // you switch the model in OPENAI_MODEL, change this accordingly.
+          max_tokens: 800,
+        }),
+      });
+    } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        return json({ error: "OpenAI request timed out" }, 504);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!oaiRes.ok) {
       const errText = await oaiRes.text();

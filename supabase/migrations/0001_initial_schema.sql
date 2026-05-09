@@ -46,8 +46,8 @@ create table if not exists public.photo_memos (
   memo                  text not null default '',
   category_id           text not null references public.categories(id),
   photo_path            text,        -- {user_id}/{photo_id}.jpg in storage
-  ocr_text              text,        -- "내용" extracted by gpt-5.4-nano
-  classification_reason text,        -- "근거" from gpt-5.4-nano
+  ocr_text              text,        -- "내용" extracted by the classifier
+  classification_reason text,        -- "근거" from the classifier
   remind                boolean not null default false,
   remind_at             timestamptz  -- null when remind = false
 );

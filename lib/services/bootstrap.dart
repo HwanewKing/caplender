@@ -11,6 +11,12 @@ const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 /// Anonymous sign-in keeps the 40-50대 onboarding friction at zero — the user
 /// just opens the app and starts capturing. The anonymous user can later be
 /// upgraded to email/social without losing data.
+///
+/// Idempotent: safe to retry from a UI "다시 시도" button. `Supabase.initialize`
+/// is only called once; subsequent retries just re-attempt the anonymous
+/// sign-in if no session is present.
+bool _supabaseInited = false;
+
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -22,7 +28,10 @@ Future<void> bootstrap() async {
     );
   }
 
-  await Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseAnonKey);
+  if (!_supabaseInited) {
+    await Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseAnonKey);
+    _supabaseInited = true;
+  }
 
   final auth = Supabase.instance.client.auth;
   if (auth.currentUser == null) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -8,17 +9,18 @@ import '../../data/categories.dart';
 import '../../services/memo_repository.dart';
 import '../../services/memo_store.dart';
 import '../../services/photo_capture_service.dart';
+import '../../theme/app_settings.dart';
 import '../../theme/colors.dart';
-import '../../widgets/app_toggle.dart';
-import '../../widgets/datetime_pickers.dart';
+import '../../utils/date_format.dart';
+import '../../widgets/memo_form_fields.dart';
 import '../../widgets/photo_tile.dart';
 
-enum _Step { camera, review, memo, done }
+enum _Step { camera, memo, done }
 
-/// Full-screen capture flow modeled on the design's QuickPhotoModal but wired
-/// up to real services: native camera/gallery (image_picker) → Supabase
-/// Storage → OpenAI gpt-5.4-nano via the `classify-image` Edge Function →
-/// photo_memos row insert.
+/// Photo memo flow. Step 1 is the guidance / shutter screen; tapping the
+/// shutter (or gallery) hands off to the system picker. Step 2 lands in
+/// the memo entry form straight after capture — there's no separate review
+/// step, since the OS camera UI already lets the user retake.
 class QuickPhotoFlow extends StatefulWidget {
   const QuickPhotoFlow({super.key});
 
@@ -33,32 +35,30 @@ class _QuickPhotoFlowState extends State<QuickPhotoFlow> {
   void _onCaptured(CapturedPhoto p) {
     setState(() {
       _photo = p;
-      _step = _Step.review;
+      _step = _Step.memo;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final settings = AppSettingsScope.of(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: _step == _Step.memo || _step == _Step.done
-          ? SystemUiOverlayStyle.dark
-          : SystemUiOverlayStyle.light,
+      value: _step == _Step.camera
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
       child: Material(
-        color: const Color(0xFF0A0A0A),
+        color: _step == _Step.camera
+            ? const Color(0xFF0A0A0A)
+            : AppColors.cream,
         child: switch (_step) {
           _Step.camera => _CameraView(
               onCapture: _onCaptured,
               onClose: () => Navigator.of(context).pop(),
             ),
-          _Step.review => _ReviewView(
-              photo: _photo!,
-              onRetake: () => setState(() => _step = _Step.camera),
-              onNext: () => setState(() => _step = _Step.memo),
-              onClose: () => Navigator.of(context).pop(),
-            ),
           _Step.memo => _MemoEntryView(
               photo: _photo!,
-              onBack: () => setState(() => _step = _Step.review),
+              autoOcrEnabled: settings.autoOcrEnabled,
+              autoCategorize: settings.autoCategorize,
               onSaved: () => setState(() => _step = _Step.done),
               onClose: () => Navigator.of(context).pop(),
             ),
@@ -151,7 +151,7 @@ class _CameraViewState extends State<_CameraView>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _circleBtn(Icons.close, widget.onClose),
-                  _circleBtn(Icons.bolt, () {}),
+                  const SizedBox(width: 38, height: 38),
                 ],
               ),
             ),
@@ -283,7 +283,7 @@ class _CameraViewState extends State<_CameraView>
                         pulseAnim: _pulse,
                         onTap: _onShutter,
                       ),
-                      _squareBtn(Icons.flip_camera_ios_outlined, () {}),
+                      const SizedBox(width: 56, height: 56),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -364,8 +364,7 @@ class _ShutterButton extends StatelessWidget {
                       height: 94,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border:
-                            Border.all(color: AppColors.coral, width: 2),
+                        border: Border.all(color: AppColors.coral, width: 2),
                       ),
                     ),
                   ),
@@ -442,192 +441,20 @@ class _FrameGuidePainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Step 2 — review captured photo. AI processing happens on the next step
-// (memo entry) so the user has time to look at the photo first.
-// ─────────────────────────────────────────────────────────────
-
-class _ReviewView extends StatelessWidget {
-  final CapturedPhoto photo;
-  final VoidCallback onRetake;
-  final VoidCallback onNext;
-  final VoidCallback onClose;
-  const _ReviewView({
-    required this.photo,
-    required this.onRetake,
-    required this.onNext,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final timeLabel =
-        '${now.month}월 ${now.day}일 · ${now.hour < 12 ? "오전" : "오후"} ${now.hour > 12 ? now.hour - 12 : now.hour}:${now.minute.toString().padLeft(2, '0')}';
-    return Container(
-      color: const Color(0xFF1A1815),
-      child: Column(
-        children: [
-          const SizedBox(height: 60),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton(
-                  onPressed: onClose,
-                  child: const Text('취소',
-                      style: TextStyle(color: Colors.white, fontSize: 16)),
-                ),
-                const Text(
-                  '사진 확인',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 40),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      PhotoLarge(bytes: photo.bytes, label: timeLabel),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: AppColors.coral.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: AppColors.coral.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: const Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(Icons.auto_awesome,
-                                size: 18, color: Color(0xFFFFB199)),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                '다음 단계에서 글씨를 읽고 자동으로 분류해 드릴게요.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFFFFD9CC),
-                                  height: 1.45,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              24,
-              24,
-              24,
-              36 + MediaQuery.of(context).padding.bottom,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 1,
-                  child: SizedBox(
-                    height: 56,
-                    child: OutlinedButton(
-                      onPressed: onRetake,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(
-                            color: Color(0x4DFFFFFF), width: 1.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text(
-                        '다시 찍기',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: SizedBox(
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: onNext,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.coral,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              '이 사진으로 기록하기',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: 6),
-                          Icon(Icons.chevron_right, size: 18),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Step 3 — memo entry. On entry: upload to Storage + classify via Edge Fn.
+// Step 2 — memo entry. On entry: upload to Storage + classify via Edge Fn.
 // On save: insert photo_memos row.
 // ─────────────────────────────────────────────────────────────
 
 class _MemoEntryView extends StatefulWidget {
   final CapturedPhoto photo;
-  final VoidCallback onBack;
+  final bool autoOcrEnabled;
+  final bool autoCategorize;
   final VoidCallback onSaved;
   final VoidCallback onClose;
   const _MemoEntryView({
     required this.photo,
-    required this.onBack,
+    required this.autoOcrEnabled,
+    required this.autoCategorize,
     required this.onSaved,
     required this.onClose,
   });
@@ -652,6 +479,11 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
   ClassificationResult? _classification;
   String? _processingError;
   bool _saving = false;
+  bool _saved = false;
+  bool _uploadReleased = false;
+
+  bool get _shouldClassify => widget.autoOcrEnabled || widget.autoCategorize;
+  bool get _canSave => !_saving && !_processing && _photoPath != null;
 
   @override
   void initState() {
@@ -668,16 +500,38 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
         mimeType: widget.photo.mimeType,
         extension: widget.photo.extension,
       );
-      if (!mounted) return;
+      if (!mounted) {
+        await _releaseUploadPath(path);
+        return;
+      }
       setState(() => _photoPath = path);
 
+      if (!_shouldClassify) {
+        setState(() => _processing = false);
+        return;
+      }
+
       final c = await _repo.classifyPhoto(path);
-      if (!mounted) return;
+      if (!mounted) {
+        await _releaseUploadPath(path);
+        return;
+      }
+      // Defense in depth: if the classifier returns a category that isn't
+      // one of our four buckets, fall back to "other" rather than letting an
+      // unknown id flow into the DB.
+      final allowed = appCategories.map((c) => c.id).toSet();
+      final resolvedCat = allowed.contains(c.category) ? c.category : 'other';
       setState(() {
         _classification = c;
-        _category = c.category;
-        if (_titleCtrl.text.isEmpty) _titleCtrl.text = _defaultTitle(c.category);
-        if (_memoCtrl.text.isEmpty) _memoCtrl.text = c.content;
+        if (widget.autoCategorize) {
+          _category = resolvedCat;
+        }
+        if (widget.autoCategorize && _titleCtrl.text.isEmpty) {
+          _titleCtrl.text = _defaultTitle(resolvedCat);
+        }
+        if (widget.autoOcrEnabled && _memoCtrl.text.isEmpty) {
+          _memoCtrl.text = c.content;
+        }
         _processing = false;
       });
     } catch (e) {
@@ -703,26 +557,28 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
   }
 
   Future<void> _onSave() async {
-    if (_saving) return;
-    if (_photoPath == null) {
+    if (!_canSave) return;
+    if (_remind && _remindAt.isBefore(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('사진 업로드가 완료되지 않았어요. 잠시만 기다려주세요.')),
+        const SnackBar(content: Text('알림 시각이 이미 지났어요. 다시 선택해주세요.')),
       );
       return;
     }
     setState(() => _saving = true);
     try {
-      await _repo.createPhotoMemo(
+      await _repo.createMemo(
         photoPath: _photoPath!,
         title: _titleCtrl.text.trim(),
         memo: _memoCtrl.text.trim(),
         categoryId: _category,
-        memoDate: DateTime.now(),
-        ocrText: _classification?.content,
-        classificationReason: _classification?.reason,
+        memoDate: widget.photo.capturedAt,
+        ocrText: widget.autoOcrEnabled ? _classification?.content : null,
+        classificationReason:
+            widget.autoCategorize ? _classification?.reason : null,
         remind: _remind,
         remindAt: _remind ? _remindAt : null,
       );
+      _saved = true;
       if (!mounted) return;
       // Pull the new row into the in-memory store so the calendar /
       // gallery / reminders rebuild before the "saved" view is dismissed.
@@ -738,8 +594,31 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
     }
   }
 
+  Future<void> _releaseUploadPath(String path) async {
+    if (_saved || _uploadReleased) return;
+    _uploadReleased = true;
+    try {
+      await _repo.deletePhotoUpload(path);
+    } catch (e) {
+      // Best-effort — orphaned uploads can be cleaned up by a server job.
+      debugPrint('[caplender] temp upload cleanup failed for $path: $e');
+    }
+  }
+
+  Future<void> _cleanupPendingUpload() async {
+    final path = _photoPath;
+    if (path == null) return;
+    await _releaseUploadPath(path);
+  }
+
+  Future<void> _handleClose() async {
+    await _cleanupPendingUpload();
+    if (mounted) widget.onClose();
+  }
+
   @override
   void dispose() {
+    unawaited(_cleanupPendingUpload());
     _titleCtrl.dispose();
     _memoCtrl.dispose();
     super.dispose();
@@ -747,8 +626,17 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.cream,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || _saving) return;
+        // Capture the navigator before awaiting so we don't reach back into
+        // a stale BuildContext after the cleanup completes.
+        final navigator = Navigator.of(context);
+        await _cleanupPendingUpload();
+        if (!mounted) return;
+        navigator.pop();
+      },
       child: SafeArea(
         child: Column(
           children: [
@@ -756,22 +644,7 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
               height: 56,
               child: Row(
                 children: [
-                  TextButton(
-                    onPressed: _saving ? null : widget.onBack,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.chevron_left,
-                            size: 20, color: AppColors.ink),
-                        SizedBox(width: 4),
-                        Text(
-                          '뒤로',
-                          style: TextStyle(
-                              color: AppColors.ink, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const SizedBox(width: 16),
                   const Spacer(),
                   const Text(
                     '메모 작성',
@@ -783,11 +656,10 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
                   ),
                   const Spacer(),
                   TextButton(
-                    onPressed: _saving ? null : widget.onClose,
+                    onPressed: _saving ? null : _handleClose,
                     child: const Text(
                       '닫기',
-                      style: TextStyle(
-                          color: AppColors.inkMuted, fontSize: 15),
+                      style: TextStyle(color: AppColors.inkMuted, fontSize: 15),
                     ),
                   ),
                 ],
@@ -797,225 +669,35 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(22, 8, 22, 16),
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      PhotoTile(
-                        bytes: widget.photo.bytes,
-                        width: 84,
-                        height: 84,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(child: _AutoDetectStatus(
-                        processing: _processing,
-                        error: _processingError,
-                        classification: _classification,
-                      )),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  _Field(
-                    label: '제목',
-                    child: TextField(
-                      controller: _titleCtrl,
-                      style: const TextStyle(fontSize: 16),
-                      decoration: _inputDecoration(),
-                    ),
-                  ),
-                  _Field(
-                    label: '메모',
-                    child: TextField(
-                      controller: _memoCtrl,
-                      maxLines: 5,
-                      minLines: 3,
-                      style: gaeguStyle(size: 17),
-                      decoration: _inputDecoration(
-                        hint: '이 사진에 대해 기억하고 싶은 것을 적어주세요',
-                      ),
-                    ),
-                  ),
-                  _Field(
-                    label: '분류',
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final c in appCategories)
-                          GestureDetector(
-                            onTap: () => setState(() => _category = c.id),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _category == c.id
-                                    ? Colors.white
-                                    : const Color(0xFFFCFAF4),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: _category == c.id
-                                      ? AppColors.teal
-                                      : AppColors.border,
-                                  width: _category == c.id ? 2 : 1,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                      color: Color(c.colorValue),
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    c.name,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: _category == c.id
-                                          ? FontWeight.w600
-                                          : FontWeight.w500,
-                                      color: _category == c.id
-                                          ? AppColors.teal
-                                          : AppColors.inkSoft,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    margin: const EdgeInsets.only(top: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.borderSoft),
-                    ),
-                    child: Column(
+                  MemoFormFields(
+                    titleCtrl: _titleCtrl,
+                    memoCtrl: _memoCtrl,
+                    category: _category,
+                    onCategoryChanged: (v) => setState(() => _category = v),
+                    remind: _remind,
+                    onRemindChanged: (v) => setState(() => _remind = v),
+                    remindAt: _remindAt,
+                    onRemindAtChanged: (v) => setState(() => _remindAt = v),
+                    activePreset: _activePreset,
+                    onActivePresetChanged: (v) =>
+                        setState(() => _activePreset = v),
+                    leading: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: const BoxDecoration(
-                                color: AppColors.coralSoft,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.notifications_outlined,
-                                color: AppColors.coral,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    '잊지 않게 알려주기',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.ink,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _remind
-                                        ? '${formatRemindLabel(_remindAt)}에 알림'
-                                        : '알림이 꺼져 있어요',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.inkMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            AppToggle(
-                              value: _remind,
-                              onChanged: (v) =>
-                                  setState(() => _remind = v),
-                            ),
-                          ],
+                        PhotoTile(
+                          bytes: widget.photo.bytes,
+                          width: 84,
+                          height: 84,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        if (_remind) ...[
-                          const SizedBox(height: 12),
-                          Padding(
-                            padding: const EdgeInsets.only(left: 52),
-                            child: Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                for (final w in const [
-                                  '1시간 후',
-                                  '내일 오전 9:00',
-                                  '3일 뒤',
-                                  '1주일 뒤'
-                                ])
-                                  GestureDetector(
-                                    onTap: () => setState(() {
-                                      _remindAt = parseRemindPreset(w);
-                                      _activePreset = w;
-                                    }),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: _activePreset == w
-                                            ? AppColors.coralSoft
-                                            : Colors.white,
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        border: Border.all(
-                                          color: _activePreset == w
-                                              ? AppColors.coral
-                                              : AppColors.border,
-                                          width:
-                                              _activePreset == w ? 1.5 : 1,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        w,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: _activePreset == w
-                                              ? FontWeight.w600
-                                              : FontWeight.w500,
-                                          color: _activePreset == w
-                                              ? const Color(0xFF9C3F3A)
-                                              : AppColors.inkSoft,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AutoDetectStatus(
+                            processing: _processing,
+                            error: _processingError,
+                            classification: _classification,
                           ),
-                          const SizedBox(height: 10),
-                          Padding(
-                            padding: const EdgeInsets.only(left: 52),
-                            child: DateTimePickers(
-                              value: _remindAt,
-                              onChanged: (next) => setState(() {
-                                _remindAt = next;
-                                _activePreset = null;
-                              }),
-                            ),
-                          ),
-                        ],
+                        ),
                       ],
                     ),
                   ),
@@ -1033,7 +715,7 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _saving ? null : _onSave,
+                  onPressed: _canSave ? _onSave : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.teal,
                     foregroundColor: Colors.white,
@@ -1071,29 +753,6 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDecoration({String? hint}) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: const TextStyle(color: AppColors.inkMuted),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.border),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.border),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.teal, width: 1.5),
       ),
     );
   }
@@ -1138,8 +797,7 @@ class _AutoDetectStatus extends StatelessWidget {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline,
-              size: 14, color: Color(0xFF9C3F3A)),
+          const Icon(Icons.error_outline, size: 14, color: Color(0xFF9C3F3A)),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -1194,38 +852,8 @@ class _AutoDetectStatus extends StatelessWidget {
   }
 }
 
-class _Field extends StatelessWidget {
-  final String label;
-  final Widget child;
-  const _Field({required this.label, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 4),
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.inkSoft,
-              ),
-            ),
-          ),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
 // ─────────────────────────────────────────────────────────────
-// Step 4 — saved confirmation
+// Saved confirmation
 // ─────────────────────────────────────────────────────────────
 
 class _SavedView extends StatefulWidget {
@@ -1247,32 +875,29 @@ class _SavedViewState extends State<_SavedView> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.cream,
-      child: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _CheckCircle(),
-            SizedBox(height: 18),
-            Text(
-              '저장했어요',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: AppColors.ink,
-              ),
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _CheckCircle(),
+          SizedBox(height: 18),
+          Text(
+            '저장했어요',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppColors.ink,
             ),
-            SizedBox(height: 6),
-            Text(
-              '갤러리와 캘린더에서 확인할 수 있어요',
-              style: TextStyle(
-                fontSize: 15,
-                color: AppColors.inkMuted,
-              ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            '갤러리와 캘린더에서 확인할 수 있어요',
+            style: TextStyle(
+              fontSize: 15,
+              color: AppColors.inkMuted,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

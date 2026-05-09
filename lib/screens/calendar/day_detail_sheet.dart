@@ -4,25 +4,25 @@ import '../../app.dart';
 import '../../data/models.dart';
 import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
-import '../../widgets/photo_tile.dart';
+import '../../utils/date_format.dart';
+import '../../widgets/stored_photo.dart';
 import '../photo_memo_detail.dart';
 
-/// Bottom sheet shown when tapping a day cell. Lists every event for that day
-/// with mocked handwritten memo bodies, plus two action buttons in the footer.
+/// Bottom sheet shown when tapping a day cell. Lists every event for that
+/// day. Adding new memos is handled by the QUICK MEMO speed-dial in the
+/// home shell — this sheet is read-only.
 class DayDetailSheet extends StatelessWidget {
   final DateTime day;
-  final VoidCallback onAddPhoto;
 
   const DayDetailSheet({
     super.key,
     required this.day,
-    required this.onAddPhoto,
   });
 
   @override
   Widget build(BuildContext context) {
     final events = MemoStoreScope.of(context).eventsForDate(day);
-    final weekday = ['일', '월', '화', '수', '목', '금', '토'][day.weekday % 7];
+    final weekday = koreanWeekdaySunFirst(day);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.78,
@@ -142,26 +142,15 @@ class DayDetailSheet extends StatelessWidget {
                             style: BorderStyle.solid,
                           ),
                         ),
-                        child: const Column(
-                          children: [
-                            Text(
-                              '아직 기록이 없어요.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: AppColors.inkMuted,
-                              ),
+                        child: const Center(
+                          child: Text(
+                            '아직 기록이 없어요',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: AppColors.inkMuted,
                             ),
-                            SizedBox(height: 6),
-                            Text(
-                              '아래 버튼으로 추가해 보세요',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: AppColors.inkFaint,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       )
                     else
@@ -173,115 +162,11 @@ class DayDetailSheet extends StatelessWidget {
                   ],
                 ),
               ),
-              Container(
-                decoration: const BoxDecoration(
-                  color: AppColors.cream,
-                  border: Border(
-                    top: BorderSide(color: AppColors.borderSoft, width: 1),
-                  ),
-                ),
-                padding: EdgeInsets.fromLTRB(
-                  22,
-                  12,
-                  22,
-                  22 + MediaQuery.of(context).padding.bottom,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _FooterBtn(
-                        icon: Icons.camera_alt_outlined,
-                        label: '사진으로 기록',
-                        background: AppColors.coral,
-                        foreground: Colors.white,
-                        onTap: onAddPhoto,
-                        shadow: true,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _FooterBtn(
-                        icon: Icons.add,
-                        label: '일정 추가',
-                        background: Colors.white,
-                        foreground: AppColors.ink,
-                        bordered: true,
-                        onTap: () => Navigator.of(context).pop(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
             ],
           ),
         );
       },
-    );
-  }
-}
-
-class _FooterBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color background;
-  final Color foreground;
-  final VoidCallback onTap;
-  final bool shadow;
-  final bool bordered;
-
-  const _FooterBtn({
-    required this.icon,
-    required this.label,
-    required this.background,
-    required this.foreground,
-    required this.onTap,
-    this.shadow = false,
-    this.bordered = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          height: 52,
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(14),
-            border: bordered
-                ? Border.all(color: AppColors.border, width: 1)
-                : null,
-            boxShadow: shadow
-                ? const [
-                    BoxShadow(
-                      color: Color(0x52F57E58),
-                      blurRadius: 12,
-                      offset: Offset(0, 4),
-                    ),
-                  ]
-                : null,
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: foreground, size: 20),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: foreground,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -440,29 +325,12 @@ class _ThumbOrPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = PhotoTile(
+    return StoredPhoto(
+      photoPath: photoPath,
       tone: tone,
       width: width,
       height: height,
       borderRadius: radius,
-    );
-    if (photoPath == null) return placeholder;
-    final store = MemoStoreScope.of(context);
-    return FutureBuilder<String>(
-      future: store.signedUrlFor(photoPath!),
-      builder: (context, snap) {
-        if (!snap.hasData) return placeholder;
-        return ClipRRect(
-          borderRadius: radius,
-          child: Image.network(
-            snap.data!,
-            width: width,
-            height: height,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => placeholder,
-          ),
-        );
-      },
     );
   }
 }

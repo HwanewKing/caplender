@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/models.dart';
 import '../../services/memo_store.dart';
 import '../../theme/colors.dart';
-import '../../widgets/photo_tile.dart';
+import '../../widgets/stored_photo.dart';
 import '../photo_memo_detail.dart';
 
 /// Gallery view with date / category folder toggle.
@@ -465,27 +465,11 @@ class _CardThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = PhotoTile(
+    return StoredPhoto(
+      photoPath: photoPath,
       tone: tone,
       width: double.infinity,
       height: double.infinity,
-      borderRadius: BorderRadius.zero,
-      elevated: false,
-    );
-    if (photoPath == null) return placeholder;
-    final store = MemoStoreScope.of(context);
-    return FutureBuilder<String>(
-      future: store.signedUrlFor(photoPath!),
-      builder: (context, snap) {
-        if (!snap.hasData) return placeholder;
-        return Image.network(
-          snap.data!,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          errorBuilder: (_, _, _) => placeholder,
-        );
-      },
     );
   }
 }
@@ -555,18 +539,13 @@ class _CoverImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = MemoStoreScope.of(context);
-    final swatch = ColoredBox(color: swatchColor);
-    return FutureBuilder<String>(
-      future: store.signedUrlFor(photoPath),
-      builder: (context, snap) {
-        if (!snap.hasData) return swatch;
-        return Image.network(
-          snap.data!,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => swatch,
-        );
-      },
+    return StoredPhoto(
+      photoPath: photoPath,
+      tone: PhotoTone.note, // unused — drawTonePlaceholder is false below
+      width: double.infinity,
+      height: double.infinity,
+      drawTonePlaceholder: false,
+      placeholderColor: swatchColor,
     );
   }
 }

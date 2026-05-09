@@ -77,20 +77,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      width: 20,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8, right: 4),
-                        child: Text(
-                          '${week.first.weekNum}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: AppColors.inkFaint,
-                          ),
-                        ),
-                      ),
-                    ),
                     for (int ci = 0; ci < week.length; ci++)
                       Expanded(
                         child: _DayCell(
@@ -340,7 +326,6 @@ class CalendarCell {
   final int day;
   final bool inMonth;
   final int weekIdx;
-  final int weekNum;
 
   const CalendarCell({
     required this.year,
@@ -348,7 +333,6 @@ class CalendarCell {
     required this.day,
     required this.inMonth,
     required this.weekIdx,
-    required this.weekNum,
   });
 
   DateTime get date => DateTime(year, month, day);
@@ -375,7 +359,6 @@ List<CalendarCell> buildMonthCells(int year, int month) {
       day: prevMonthDays - i,
       inMonth: false,
       weekIdx: 0,
-      weekNum: 0,
     ));
   }
   for (int d = 1; d <= daysInMonth; d++) {
@@ -385,7 +368,6 @@ List<CalendarCell> buildMonthCells(int year, int month) {
       day: d,
       inMonth: true,
       weekIdx: 0,
-      weekNum: 0,
     ));
   }
   while (cells.length % 7 != 0) {
@@ -399,20 +381,17 @@ List<CalendarCell> buildMonthCells(int year, int month) {
       day: nextDay,
       inMonth: false,
       weekIdx: 0,
-      weekNum: 0,
     ));
   }
 
   return List.generate(cells.length, (i) {
     final c = cells[i];
-    final wIdx = i ~/ 7;
     return CalendarCell(
       year: c.year,
       month: c.month,
       day: c.day,
       inMonth: c.inMonth,
-      weekIdx: wIdx,
-      weekNum: 9 + wIdx,
+      weekIdx: i ~/ 7,
     );
   });
 }

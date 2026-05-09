@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../data/categories.dart';
@@ -8,9 +11,9 @@ import 'memo_repository.dart';
 /// via [MemoStoreScope] so we don't re-query Supabase on every rebuild,
 /// and so a save / edit / delete in one screen propagates everywhere.
 ///
-/// On creation the store kicks off a background load. Listeners fire
-/// from the initial load, from explicit [refresh] calls after a write,
-/// and from on-demand signed-URL fetches for thumbnails.
+/// On creation the store kicks off a background load. Listeners fire from
+/// the initial load, from explicit [refresh] calls after a write, and from
+/// async signed-URL fetches that populate the URL cache.
 class MemoStore extends ChangeNotifier {
   MemoStore({MemoRepository? repository})
       : _repo = repository ?? MemoRepository() {
@@ -22,16 +25,28 @@ class MemoStore extends ChangeNotifier {
   List<Event> _photoMemos = const [];
   bool _loading = false;
   Object? _error;
+  bool _hasResolvedFirstLoad = false;
 
   bool get loading => _loading;
   Object? get error => _error;
+  bool get hasResolvedFirstLoad => _hasResolvedFirstLoad;
+  bool get isEmpty => _photoMemos.isEmpty;
 
-  List<Event> eventsForDate(DateTime d) => _photoMemos
-      .where((e) =>
-          e.date.year == d.year &&
-          e.date.month == d.month &&
-          e.date.day == d.day)
-      .toList();
+  /// Events the user expects to find on a specific day in the detail sheet:
+  /// the photo captured that day plus any reminders scheduled for that day.
+  List<Event> eventsForDate(DateTime d) {
+    final events = <Event>[];
+    final seenIds = <String>{};
+    for (final e in _photoMemos) {
+      final captureMatch = _sameDay(e.date, d);
+      final reminderMatch =
+          e.remind && e.remindAtTime != null && _sameDay(e.remindAtTime!, d);
+      if ((captureMatch || reminderMatch) && seenIds.add(e.id)) {
+        events.add(e);
+      }
+    }
+    return events;
+  }
 
   /// Photo memos captured on [d] — what the user wants to see as a photo
   /// thumbnail on the calendar (no bell decoration).
@@ -51,8 +66,7 @@ class MemoStore extends ChangeNotifier {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   /// Photo memos with reminders enabled.
-  List<Event> remindersList() =>
-      _photoMemos.where((e) => e.remind).toList();
+  List<Event> remindersList() => _photoMemos.where((e) => e.remind).toList();
 
   List<Event> galleryItems() => _photoMemos;
 
@@ -84,8 +98,28 @@ class MemoStore extends ChangeNotifier {
     ];
   }
 
-  Future<void> refresh() async {
-    if (_loading) return;
+  // ── Refresh queue ─────────────────────────────────────────────────────
+  // Callers (screen save / delete / edit) expect that `await refresh()` will
+  // see their write reflected in the loaded list. A naive
+  //   if (_loading) return;
+  // returns early when an earlier refresh is still in flight, which means
+  // the caller's write may not be loaded yet. We instead chain a single
+  // queued refresh after the current one so concurrent callers all wait
+  // on a fetch that started AFTER their write landed.
+  Future<void>? _running;
+  Future<void>? _queued;
+
+  Future<void> refresh() {
+    if (_running == null) {
+      return _running = _runOnce();
+    }
+    return _queued ??= _running!.catchError((_) {}).then((_) {
+      _queued = null;
+      return refresh();
+    });
+  }
+
+  Future<void> _runOnce() async {
     _loading = true;
     _error = null;
     notifyListeners();
@@ -94,7 +128,9 @@ class MemoStore extends ChangeNotifier {
     } catch (e) {
       _error = e;
     } finally {
+      _hasResolvedFirstLoad = true;
       _loading = false;
+      _running = null;
       notifyListeners();
     }
   }
@@ -137,27 +173,59 @@ class MemoStore extends ChangeNotifier {
   }
 
   // ── Signed URL cache ──────────────────────────────────────────────────
-  // Each call to createSignedUrl is a network round-trip. The cards in the
-  // gallery render dozens of thumbnails at once, so we memoize per path
-  // with a TTL just below Supabase's signing TTL.
+  // Each call to createSignedUrl is a network round-trip. The gallery
+  // renders dozens of thumbnails at once, so we memoize per path with a TTL
+  // just below Supabase's signing TTL.
+  //
+  // The API is deliberately split into a SYNC getter and a fire-and-forget
+  // request so widgets don't have to use FutureBuilder. FutureBuilder
+  // re-renders its placeholder every time it sees a new Future identity,
+  // which made cached thumbnails flash on every store rebuild.
 
   static const _urlTtl = Duration(minutes: 30);
   final Map<String, _CachedUrl> _urlCache = {};
+  final Set<String> _pendingFetches = {};
 
-  /// Returns a signed URL for [photoPath], using the cache when fresh.
-  /// Throws on network failure — callers (e.g. FutureBuilder) should
-  /// handle the error and fall back to a placeholder.
-  Future<String> signedUrlFor(String photoPath) async {
+  /// Returns a cached signed URL for [photoPath] if one is fresh, otherwise
+  /// null. Expired entries are cleared as a side effect so the cache doesn't
+  /// grow unbounded across long sessions.
+  String? cachedUrlFor(String photoPath) {
     final cached = _urlCache[photoPath];
-    if (cached != null && cached.expiresAt.isAfter(DateTime.now())) {
-      return cached.url;
+    if (cached == null) return null;
+    if (cached.expiresAt.isBefore(DateTime.now())) {
+      _urlCache.remove(photoPath);
+      return null;
     }
-    final url = await _repo.signedUrlFor(photoPath, ttl: _urlTtl);
-    _urlCache[photoPath] = _CachedUrl(
-      url: url,
-      expiresAt: DateTime.now().add(_urlTtl - const Duration(minutes: 1)),
-    );
-    return url;
+    return cached.url;
+  }
+
+  /// Kick off a signed-URL fetch for [photoPath] if none is in flight and
+  /// no fresh entry exists. Listeners are notified once the URL is cached,
+  /// so widgets that read [cachedUrlFor] in build will rebuild and pick it up.
+  void requestSignedUrl(String photoPath) {
+    if (cachedUrlFor(photoPath) != null) return;
+    if (_pendingFetches.contains(photoPath)) return;
+    _pendingFetches.add(photoPath);
+    // Schedule on a microtask so callers can request mid-build safely.
+    scheduleMicrotask(() => _fetchSignedUrl(photoPath));
+  }
+
+  Future<void> _fetchSignedUrl(String photoPath) async {
+    try {
+      final url = await _repo.signedUrlFor(photoPath, ttl: _urlTtl);
+      _urlCache[photoPath] = _CachedUrl(
+        url: url,
+        // Renew shortly before the actual signed URL expires.
+        expiresAt: DateTime.now().add(_urlTtl - const Duration(minutes: 1)),
+      );
+      notifyListeners();
+    } catch (e) {
+      if (!kReleaseMode) {
+        debugPrint('[caplender] signed url fetch failed for $photoPath: $e');
+      }
+    } finally {
+      _pendingFetches.remove(photoPath);
+    }
   }
 }
 
@@ -176,8 +244,7 @@ class MemoStoreScope extends InheritedNotifier<MemoStore> {
   }) : super(notifier: store);
 
   static MemoStore of(BuildContext context) {
-    final scope =
-        context.dependOnInheritedWidgetOfExactType<MemoStoreScope>();
+    final scope = context.dependOnInheritedWidgetOfExactType<MemoStoreScope>();
     assert(scope != null, 'MemoStoreScope not found in widget tree');
     return scope!.notifier!;
   }

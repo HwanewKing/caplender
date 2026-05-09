@@ -1,9 +1,8 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/models.dart';
+import '../utils/date_format.dart';
 import 'bootstrap.dart';
 import 'photo_capture_service.dart';
 
@@ -54,16 +53,17 @@ class MemoRepository {
   }
 
   /// Calls the Edge Function to classify a previously uploaded photo. The
-  /// function downloads the file using its service-role key and forwards it
-  /// to OpenAI gpt-5.4-nano. The OpenAI key never reaches the client.
+  /// function downloads the file with its service-role key and forwards it
+  /// to OpenAI. The OpenAI key never reaches the client.
   Future<ClassificationResult> classifyPhoto(String photoPath) async {
     final response = await supabase.functions.invoke(
       _classifyFn,
       body: {'photoPath': photoPath},
     );
     final data = response.data;
-    debugPrint('[caplender] classify-image response status=${response.status}'
-        ' data=$data');
+    if (!kReleaseMode) {
+      debugPrint('[caplender] classify-image status=${response.status}');
+    }
     if (response.status != 200 || data is! Map<String, dynamic>) {
       throw Exception('Classification failed (${response.status}): $data');
     }
@@ -75,9 +75,14 @@ class MemoRepository {
     );
   }
 
-  /// Insert a row into photo_memos. Returns the new row id.
-  Future<String> createPhotoMemo({
-    required String photoPath,
+  /// Insert a row into photo_memos. Returns the new row id. [memoDate] is
+  /// clamped to today so a clock-skewed device or a gallery-picked photo
+  /// with a future EXIF can't put a memo on a future calendar day.
+  ///
+  /// [photoPath] is null for text-only memos — the column already accepts
+  /// null and the UI falls back to a tone-based placeholder tile.
+  Future<String> createMemo({
+    String? photoPath,
     required String title,
     required String memo,
     required String categoryId,
@@ -91,12 +96,17 @@ class MemoRepository {
     if (userId == null) {
       throw StateError('No authenticated user — cannot save memo.');
     }
+    final today = DateTime.now();
+    final clamped = memoDate.isAfter(today) ? today : memoDate;
+    final dateStr = '${clamped.year.toString().padLeft(4, '0')}-'
+        '${clamped.month.toString().padLeft(2, '0')}-'
+        '${clamped.day.toString().padLeft(2, '0')}';
+
     final inserted = await supabase
         .from('photo_memos')
         .insert({
           'user_id': userId,
-          'memo_date':
-              '${memoDate.year.toString().padLeft(4, '0')}-${memoDate.month.toString().padLeft(2, '0')}-${memoDate.day.toString().padLeft(2, '0')}',
+          'memo_date': dateStr,
           'title': title,
           'memo': memo,
           'category_id': categoryId,
@@ -138,6 +148,12 @@ class MemoRepository {
         .createSignedUrl(photoPath, ttl.inSeconds);
   }
 
+  /// Best-effort delete for an uploaded photo that never got attached to a
+  /// memo row.
+  Future<void> deletePhotoUpload(String photoPath) {
+    return supabase.storage.from(_bucket).remove([photoPath]);
+  }
+
   /// Update the editable text/category/reminder fields of an existing memo.
   /// The photo itself stays put — replacing the photo would be a separate
   /// flow.
@@ -165,14 +181,16 @@ class MemoRepository {
     required String id,
     String? photoPath,
   }) async {
+    await supabase.from('photo_memos').delete().eq('id', id);
     if (photoPath != null) {
       try {
-        await supabase.storage.from(_bucket).remove([photoPath]);
+        await deletePhotoUpload(photoPath);
       } catch (e) {
-        debugPrint('[caplender] storage remove failed for $photoPath: $e');
+        if (!kReleaseMode) {
+          debugPrint('[caplender] storage remove failed for $photoPath: $e');
+        }
       }
     }
-    await supabase.from('photo_memos').delete().eq('id', id);
   }
 }
 
@@ -191,8 +209,7 @@ Event _rowToEvent(Map<String, dynamic> r) {
   final remindAtTime = remindAtRawString != null
       ? DateTime.parse(remindAtRawString).toLocal()
       : null;
-  final remindAt =
-      remindAtTime != null ? _formatRemindTime(remindAtTime) : null;
+  final remindAt = remindAtTime != null ? formatTimeOnly(remindAtTime) : null;
 
   return Event(
     id: id,
@@ -209,33 +226,4 @@ Event _rowToEvent(Map<String, dynamic> r) {
     ocrText: r['ocr_text'] as String?,
     classificationReason: r['classification_reason'] as String?,
   );
-}
-
-String _formatRemindTime(DateTime t) {
-  final h12 = t.hour == 0
-      ? 12
-      : (t.hour > 12 ? t.hour - 12 : t.hour);
-  final ampm = t.hour < 12 ? '오전' : '오후';
-  return '$ampm $h12:${t.minute.toString().padLeft(2, '0')}';
-}
-
-/// Convert a remind-preset chip ("내일 오전 9:00", "3일 뒤" …) into an absolute
-/// DateTime relative to `now`. Best-effort — used until we add a proper picker.
-DateTime parseRemindPreset(String preset, {DateTime? now}) {
-  final base = now ?? DateTime.now();
-  switch (preset) {
-    case '1시간 후':
-      return base.add(const Duration(hours: 1));
-    case '내일 오전 9:00':
-      final tomorrow = base.add(const Duration(days: 1));
-      return DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0);
-    case '3일 뒤':
-      final d = base.add(const Duration(days: 3));
-      return DateTime(d.year, d.month, d.day, 9, 0);
-    case '1주일 뒤':
-      final d = base.add(const Duration(days: 7));
-      return DateTime(d.year, d.month, d.day, 9, 0);
-    default:
-      return base.add(const Duration(hours: 1));
-  }
 }

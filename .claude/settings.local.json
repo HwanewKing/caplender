@@ -8,7 +8,10 @@
       "Bash(cygpath -w /tmp/design_extract/calture)",
       "PowerShell(flutter --version 2>&1)",
       "PowerShell(dart --version 2>&1)",
-      "Bash(xargs -0 sed -i -E 's/\\\\.withOpacity\\\\\\(\\([^\\)]*\\)\\\\\\)/\\\\.withValues\\(alpha: \\\\1\\)/g')"
+      "Bash(xargs -0 sed -i -E 's/\\\\.withOpacity\\\\\\(\\([^\\)]*\\)\\\\\\)/\\\\.withValues\\(alpha: \\\\1\\)/g')",
+      "Bash(flutter --version)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter test *)"
     ]
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
 import '../../services/auth_service.dart';
+import '../../services/memo_store.dart';
 import '../../theme/app_settings.dart';
 import '../../theme/colors.dart';
 import '../../widgets/app_toggle.dart';
@@ -13,6 +14,12 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppSettingsScope.of(context);
     final auth = AuthScope.of(context);
+    final store = MemoStoreScope.of(context);
+    final memoCount = store.galleryItems().length;
+    final reminderCount = store.remindersList().length;
+    final displayName = auth.email ?? '내 기록';
+    final displayInitial =
+        displayName.isNotEmpty ? displayName.characters.first : '내';
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 100),
       physics: const BouncingScrollPhysics(),
@@ -67,9 +74,9 @@ class SettingsScreen extends StatelessWidget {
                       colors: [AppColors.peach, AppColors.coral],
                     ),
                   ),
-                  child: const Text(
-                    '김',
-                    style: TextStyle(
+                  child: Text(
+                    displayInitial,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -78,22 +85,22 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '김성미',
-                        style: TextStyle(
+                        displayName,
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
                         ),
                       ),
-                      SizedBox(height: 2),
+                      const SizedBox(height: 2),
                       Text(
-                        '사진 메모 32개 · 리마인더 5개',
-                        style: TextStyle(
+                        '사진 메모 $memoCount개 · 리마인더 $reminderCount개',
+                        style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.inkMuted,
                         ),
@@ -101,8 +108,6 @@ class SettingsScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right,
-                    size: 18, color: AppColors.inkMuted),
               ],
             ),
           ),
@@ -152,10 +157,13 @@ class SettingsScreen extends StatelessWidget {
               activeColor: s.accent,
             ),
           ),
+          // Local notification scheduling isn't implemented yet, so this row
+          // is informational. We surface "준비 중" so users don't expect a
+          // setting that does nothing.
           const _Row(
             icon: Icons.access_time,
             title: '기본 알림 시간',
-            detail: '오전 9:00',
+            detail: '준비 중',
           ),
         ]),
         _Group(title: '자동 인식', children: [

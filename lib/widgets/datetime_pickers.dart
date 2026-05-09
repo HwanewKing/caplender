@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../theme/colors.dart';
+import '../utils/date_format.dart';
 
 /// Two side-by-side pill buttons that open the system date and time pickers.
-/// Used by the QuickPhoto memo entry view and the photo memo edit screen so
-/// the user can pin the reminder to any year/month/day/hour/minute they want.
+/// Used by the memo entry / edit forms so the user can pin the reminder to
+/// any year/month/day/hour/minute they want.
 class DateTimePickers extends StatelessWidget {
   final DateTime value;
   final ValueChanged<DateTime> onChanged;
@@ -126,28 +127,4 @@ class _PillButton extends StatelessWidget {
       ),
     );
   }
-}
-
-String formatDateLabel(DateTime t) {
-  const wd = ['월', '화', '수', '목', '금', '토', '일'];
-  return '${t.year}년 ${t.month}월 ${t.day}일 (${wd[t.weekday - 1]})';
-}
-
-String formatTimeOnly(DateTime t) {
-  final h12 = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
-  final ampm = t.hour < 12 ? '오전' : '오후';
-  return '$ampm $h12:${t.minute.toString().padLeft(2, '0')}';
-}
-
-/// Friendly summary used in the toggle subtitle: "오늘 오전 9:00",
-/// "내일 오후 2:30", or "5월 12일 오전 9:00" for further-out dates.
-String formatRemindLabel(DateTime t) {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final that = DateTime(t.year, t.month, t.day);
-  final diff = that.difference(today).inDays;
-  final time = formatTimeOnly(t);
-  if (diff == 0) return '오늘 $time';
-  if (diff == 1) return '내일 $time';
-  return '${t.month}월 ${t.day}일 $time';
 }

@@ -40,20 +40,29 @@ class CapturedPhoto {
   final Uint8List bytes;
   final String mimeType;
   final String extension;
+  final DateTime capturedAt;
 
   const CapturedPhoto({
     required this.bytes,
     required this.mimeType,
     required this.extension,
+    required this.capturedAt,
   });
 
   static Future<CapturedPhoto> _fromXFile(XFile x) async {
     final bytes = await x.readAsBytes();
     final ext = _extFromPath(x.path);
+    DateTime capturedAt;
+    try {
+      capturedAt = (await x.lastModified()).toLocal();
+    } catch (_) {
+      capturedAt = DateTime.now();
+    }
     return CapturedPhoto(
       bytes: bytes,
       mimeType: _mimeFromExt(ext),
       extension: ext,
+      capturedAt: capturedAt,
     );
   }
 }
