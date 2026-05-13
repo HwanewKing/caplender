@@ -28,7 +28,7 @@
 
 - **Frontend** — Flutter (Dart `^3.11.5`, Material 3)
 - **Backend** — Supabase (Postgres + Storage + Auth + Edge Functions)
-- **AI** — OpenAI Vision (`gpt-4o-mini`, Edge Function 경유)
+- **AI** — OpenAI Vision (`gpt-5.4-nano`, Edge Function 경유)
 - **주요 패키지** — `supabase_flutter`, `image_picker`, `google_fonts`(Gaegu 손글씨체), `shared_preferences`
 
 ---
