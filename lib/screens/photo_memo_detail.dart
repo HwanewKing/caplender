@@ -134,14 +134,16 @@ class _PhotoMemoDetailScreenState extends State<PhotoMemoDetailScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(0, 4, 0, 32),
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 22),
-                    child: _PhotoView(
-                      photoPath: ev.photoPath,
-                      tone: ev.tone ?? PhotoTone.note,
+                  if (ev.photoPath != null) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 22),
+                      child: _PhotoView(
+                        photoPath: ev.photoPath,
+                        tone: ev.tone ?? PhotoTone.note,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
+                  ],
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 22),
                     child: Column(

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../data/models.dart';
+import '../theme/colors.dart';
 
 /// Stylised placeholder representing a captured photo. Replaces the design's
 /// inline SVG `PhotoTile` — same 4 tones (note/receipt/card/product), drawn with
@@ -33,7 +34,7 @@ class PhotoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.circular(4);
-    final palette = _palettes[tone]!;
+    final palette = _palettes[tone] ?? _palettes[PhotoTone.note]!;
 
     final tile = ClipRRect(
       borderRadius: radius,
@@ -105,6 +106,11 @@ const Map<PhotoTone, _Palette> _palettes = {
     Color(0xFFF1D7C8),
     Color(0xFFE2B69E),
     Color(0xFF9C5A3F),
+  ),
+  PhotoTone.manual: _Palette(
+    Color(0xFFE5D6C7),
+    Color(0xFFCFBFA8),
+    Color(0xFF7A6A55),
   ),
 };
 
@@ -210,6 +216,20 @@ class _PhotoTonePainter extends CustomPainter {
           ..close();
         canvas.drawPath(ground, Paint()..color = palette.stripe);
         break;
+      case PhotoTone.manual:
+        canvas.drawRect(
+          Rect.fromLTWH(5 * scaleX, 6 * scaleY, 26 * scaleX, 24 * scaleY),
+          Paint()..color = Colors.white.withValues(alpha: 0.6),
+        );
+        canvas.drawLine(p(18, 6), p(18, 30), Paint()
+          ..color = palette.accent
+          ..strokeWidth = 0.6 * scaleY
+          ..style = PaintingStyle.stroke);
+        for (final y in [10.0, 14.0, 18.0, 22.0, 26.0]) {
+          canvas.drawLine(p(7, y), p(16, y), stripe);
+          canvas.drawLine(p(20, y), p(29, y), stripe);
+        }
+        break;
     }
   }
 
@@ -219,15 +239,23 @@ class _PhotoTonePainter extends CustomPainter {
 }
 
 /// Placeholder for a text-only memo — same tone palette as [PhotoTile] so
-/// it sits comfortably alongside photo thumbnails, but with a large "T"
-/// letter and a notepad-style top accent bar so it reads as a written
-/// memo rather than a photo.
+/// it sits comfortably alongside photo thumbnails. When [title] / [body]
+/// are provided AND the tile is large enough, renders a post-it style
+/// card with the memo's actual text. Otherwise falls back to the compact
+/// "T" letter glyph used in small lists and chips.
 class TextMemoTile extends StatelessWidget {
   final PhotoTone tone;
   final double width;
   final double height;
   final BorderRadius? borderRadius;
   final bool elevated;
+  final String? title;
+  final String? body;
+
+  /// When true, the post-it leaves room at the top for an overlaid badge
+  /// (the gallery card's date pill). When false (folder covers, etc.), the
+  /// title sits much closer to the top so the card doesn't look empty.
+  final bool reserveTopBadgeArea;
 
   const TextMemoTile({
     super.key,
@@ -236,12 +264,17 @@ class TextMemoTile extends StatelessWidget {
     this.height = 36,
     this.borderRadius,
     this.elevated = true,
+    this.title,
+    this.body,
+    this.reserveTopBadgeArea = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.circular(4);
-    final palette = _palettes[tone]!;
+    final palette = _palettes[tone] ?? _palettes[PhotoTone.note]!;
+    final hasText = (title != null && title!.trim().isNotEmpty) ||
+        (body != null && body!.trim().isNotEmpty);
 
     final tile = ClipRRect(
       borderRadius: radius,
@@ -249,34 +282,54 @@ class TextMemoTile extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           ColoredBox(color: palette.bg),
-          // Notepad-style top accent.
-          Align(
-            alignment: Alignment.topCenter,
-            child: FractionallySizedBox(
-              widthFactor: 1,
-              heightFactor: 0.16,
-              child: ColoredBox(color: palette.accent.withValues(alpha: 0.55)),
+          // Notepad-style top accent — only for the "T" glyph fallback;
+          // when we render real text the date pill + bold title carry the
+          // visual weight and the stripe would just clutter the layout.
+          if (!hasText)
+            Align(
+              alignment: Alignment.topCenter,
+              child: FractionallySizedBox(
+                widthFactor: 1,
+                heightFactor: 0.12,
+                child: ColoredBox(color: palette.accent.withValues(alpha: 0.55)),
+              ),
             ),
-          ),
-          // Centered T letter.
-          Center(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Padding(
-                padding: EdgeInsets.only(top: height * 0.04),
-                child: Text(
-                  'T',
-                  style: TextStyle(
-                    fontSize: height * 0.62,
-                    fontWeight: FontWeight.w800,
-                    color: palette.accent,
-                    height: 1,
-                    letterSpacing: -1,
+          // Two render modes, picked WITHOUT a LayoutBuilder so this widget
+          // still supports dry layout / intrinsic sizing (the calendar wraps
+          // each week row in IntrinsicHeight, which requires every descendant
+          // to compute intrinsics — LayoutBuilder doesn't).
+          //   - hasText → post-it layout (gallery cards, folder covers).
+          //     Uses absolute font/padding sizes so it works at any rendered
+          //     size from the parent's constraints.
+          //   - else → compact "T" glyph (calendar chips, day sheets, etc.),
+          //     where callers always pass a concrete finite `height`.
+          if (hasText)
+            _PostItContent(
+              title: (title ?? '').trim(),
+              body: (body ?? '').trim(),
+              palette: palette,
+              reserveTopBadgeArea: reserveTopBadgeArea,
+            )
+          else
+            Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                      top: (height.isFinite ? height : 36) * 0.04),
+                  child: Text(
+                    'T',
+                    style: TextStyle(
+                      fontSize: (height.isFinite ? height : 36) * 0.62,
+                      fontWeight: FontWeight.w800,
+                      color: palette.accent,
+                      height: 1,
+                      letterSpacing: -1,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -302,6 +355,79 @@ class TextMemoTile extends StatelessWidget {
             )
           : null,
       child: tile,
+    );
+  }
+}
+
+/// Post-it style title + body laid out for [TextMemoTile]. Font sizes
+/// scale with tile height so the same widget works for gallery cards
+/// (~110px gallery cards, ~100-200px folder covers). Uses fixed font and
+/// padding values so it supports dry layout (IntrinsicHeight / Wrap inside
+/// the calendar week rows would break otherwise).
+class _PostItContent extends StatelessWidget {
+  final String title;
+  final String body;
+  final _Palette palette;
+  final bool reserveTopBadgeArea;
+
+  const _PostItContent({
+    required this.title,
+    required this.body,
+    required this.palette,
+    required this.reserveTopBadgeArea,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Top padding clears the date pill (top:6 + ~20px tall = ~26px) plus a
+    // small breathing room when an overlaid badge is expected. Folder
+    // covers have no overlay so they get a tighter top to avoid an empty
+    // upper band. Divider sits between bold title and the body snippet,
+    // which renders smaller/lighter and ellipsises on overflow.
+    final topPad = reserveTopBadgeArea ? 32.0 : 12.0;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(10, topPad, 10, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (title.isNotEmpty)
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+                height: 1.2,
+                letterSpacing: -0.2,
+              ),
+            ),
+          if (title.isNotEmpty && body.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Container(
+              height: 1,
+              color: AppColors.ink.withValues(alpha: 0.12),
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (body.isNotEmpty)
+            Flexible(
+              child: Text(
+                body,
+                maxLines: 6,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                  color: AppColors.inkSoft,
+                  height: 1.35,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -342,7 +468,8 @@ class PhotoLarge extends StatelessWidget {
               else
                 CustomPaint(
                   painter: _PhotoTonePainter(
-                      tone: tone, palette: _palettes[tone]!),
+                      tone: tone,
+                      palette: _palettes[tone] ?? _palettes[PhotoTone.note]!),
                 ),
               if (label != null)
                 Positioned(

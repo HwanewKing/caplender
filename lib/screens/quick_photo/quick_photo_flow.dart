@@ -473,6 +473,10 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
   // an existing state instance — initState replaces it with the real value.
   DateTime _remindAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _activePreset;
+  // Defaults to the photo's capture time; replaced by a YYYY-MM-DD value
+  // from the classifier when one is available so memos land on the day the
+  // user would naturally search for.
+  late DateTime _memoDate = widget.photo.capturedAt;
 
   bool _processing = true;
   String? _photoPath;
@@ -517,20 +521,35 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
         return;
       }
       // Defense in depth: if the classifier returns a category that isn't
-      // one of our four buckets, fall back to "other" rather than letting an
+      // one of our buckets, fall back to "other" rather than letting an
       // unknown id flow into the DB.
       final allowed = appCategories.map((c) => c.id).toSet();
       final resolvedCat = allowed.contains(c.category) ? c.category : 'other';
+      // Only auto-fill the memo date when the model returned a full
+      // YYYY-MM-DD. MM-DD is ambiguous (year unknown) and "해당 없음" /
+      // "확인 필요" are signals to leave the capture date alone.
+      final fullDate = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(c.date);
+      final parsedDate = fullDate != null
+          ? DateTime(
+              int.parse(fullDate.group(1)!),
+              int.parse(fullDate.group(2)!),
+              int.parse(fullDate.group(3)!),
+            )
+          : null;
       setState(() {
         _classification = c;
         if (widget.autoCategorize) {
           _category = resolvedCat;
         }
         if (widget.autoCategorize && _titleCtrl.text.isEmpty) {
-          _titleCtrl.text = _defaultTitle(resolvedCat);
+          _titleCtrl.text =
+              c.title.isNotEmpty ? c.title : _defaultTitle(resolvedCat);
         }
         if (widget.autoOcrEnabled && _memoCtrl.text.isEmpty) {
           _memoCtrl.text = c.content;
+        }
+        if (parsedDate != null) {
+          _memoDate = parsedDate;
         }
         _processing = false;
       });
@@ -551,6 +570,8 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
         return '영수증';
       case 'business_card':
         return '명함';
+      case 'manual':
+        return '설명서';
       default:
         return '';
     }
@@ -571,10 +592,8 @@ class _MemoEntryViewState extends State<_MemoEntryView> {
         title: _titleCtrl.text.trim(),
         memo: _memoCtrl.text.trim(),
         categoryId: _category,
-        memoDate: widget.photo.capturedAt,
+        memoDate: _memoDate,
         ocrText: widget.autoOcrEnabled ? _classification?.content : null,
-        classificationReason:
-            widget.autoCategorize ? _classification?.reason : null,
         remind: _remind,
         remindAt: _remind ? _remindAt : null,
       );
@@ -817,7 +836,7 @@ class _AutoDetectStatus extends StatelessWidget {
     final c = classification;
     if (c == null) return const SizedBox.shrink();
     final preview = c.content.isEmpty
-        ? c.reason
+        ? c.title
         : (c.content.length > 80
             ? '${c.content.substring(0, 80)}…'
             : c.content);

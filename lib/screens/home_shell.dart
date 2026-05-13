@@ -262,8 +262,8 @@ class _BottomBar extends StatelessWidget {
             ),
             _TabButton(
               active: tab == HomeTab.photo,
-              icon: Icons.photo_outlined,
-              label: '사진',
+              icon: Icons.note_alt_outlined,
+              label: '기록',
               accent: accent,
               onTap: () => onTab(HomeTab.photo),
             ),

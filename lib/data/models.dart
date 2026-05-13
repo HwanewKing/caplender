@@ -1,6 +1,6 @@
 enum EventKind { schedule, holiday, birthday, photoMemo }
 
-enum PhotoTone { note, receipt, card, product }
+enum PhotoTone { note, receipt, card, product, manual }
 
 enum ScheduleColor { mint, pink }
 
@@ -16,7 +16,7 @@ class Event {
   final bool remind;
   final String? remindAt;
 
-  /// One of the 4 PRD categories: memo / receipt / business_card / other.
+  /// One of the 5 categories: memo / receipt / business_card / manual / other.
   /// Only meaningful for photoMemo events.
   final String? categoryId;
 
@@ -67,6 +67,8 @@ PhotoTone toneForCategory(String? categoryId) {
       return PhotoTone.receipt;
     case 'business_card':
       return PhotoTone.card;
+    case 'manual':
+      return PhotoTone.manual;
     case 'other':
       return PhotoTone.product;
     case 'memo':

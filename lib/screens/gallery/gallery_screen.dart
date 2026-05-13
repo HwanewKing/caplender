@@ -38,7 +38,7 @@ class _PhotoGalleryScreenState extends State<PhotoGalleryScreen> {
               ),
               SizedBox(height: 2),
               Text(
-                '사진',
+                '기록',
                 style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w700,
@@ -188,6 +188,7 @@ class _GalleryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isTextMemo = ev.photoPath == null;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(12),
@@ -215,71 +216,77 @@ class _GalleryCard extends StatelessWidget {
                 _CardThumb(
                   photoPath: ev.photoPath,
                   tone: ev.tone ?? PhotoTone.note,
+                  memoTitle: ev.title,
+                  memoBody: ev.memoBody,
                 ),
-            Positioned(
-              top: 6,
-              left: 6,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xC71F1B16),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${ev.date.month}.${ev.date.day}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xC71F1B16),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${ev.date.month}.${ev.date.day}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            if (ev.remind)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: const BoxDecoration(
-                    color: AppColors.coral,
-                    shape: BoxShape.circle,
+                if (ev.remind)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: const BoxDecoration(
+                        color: AppColors.coral,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.notifications_outlined,
+                        size: 11,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.notifications_outlined,
-                    size: 11,
-                    color: Colors.white,
+                // Photo memos overlay the title on a dark gradient so it
+                // sits on top of the image; text memos already render the
+                // title prominently inside the post-it tile.
+                if (!isTextMemo)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(8, 20, 8, 6),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0x99000000)],
+                        ),
+                      ),
+                      child: Text(
+                        ev.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(8, 20, 8, 6),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0x99000000)],
-                  ),
-                ),
-                child: Text(
-                  ev.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
               ],
             ),
           ),
@@ -456,12 +463,19 @@ class _CategoryDetail extends StatelessWidget {
 }
 
 /// Renders the actual photo when [photoPath] is provided (signed URL fetched
-/// on demand and cached by [MemoStore]); otherwise falls back to the
-/// tone-based placeholder.
+/// on demand and cached by [MemoStore]); otherwise falls back to a post-it
+/// style text memo tile that shows the memo title and body snippet.
 class _CardThumb extends StatelessWidget {
   final String? photoPath;
   final PhotoTone tone;
-  const _CardThumb({required this.photoPath, required this.tone});
+  final String? memoTitle;
+  final String? memoBody;
+  const _CardThumb({
+    required this.photoPath,
+    required this.tone,
+    this.memoTitle,
+    this.memoBody,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -470,13 +484,15 @@ class _CardThumb extends StatelessWidget {
       tone: tone,
       width: double.infinity,
       height: double.infinity,
+      memoTitle: memoTitle,
+      memoBody: memoBody,
     );
   }
 }
 
-/// Folder cover — most recent photo in the category as the background, with
-/// the small folder-tab strip on top and the count pill bottom-right. Falls
-/// back to the category's solid swatch when the folder is empty.
+/// Folder cover — uses the most recent memo in the category as the cover,
+/// regardless of whether that memo is a photo or text-only. Falls back to
+/// the category's solid swatch only when the folder is truly empty.
 class _FolderCover extends StatelessWidget {
   final CategoryItem cat;
   const _FolderCover({required this.cat});
@@ -484,28 +500,37 @@ class _FolderCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = MemoStoreScope.of(context).latestForCategory(cat.id);
+    final swatch = Color(cat.colorValue);
+    // When the latest memo is text-only we render the post-it card directly
+    // and drop the folder-tab strip so the cover reads as a memo card (clear
+    // contrast against the strip-decorated swatch of empty folders).
+    final isTextCover = latest != null && latest.photoPath == null;
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (latest?.photoPath != null)
-          _CoverImage(
-            photoPath: latest!.photoPath!,
-            swatchColor: Color(cat.colorValue),
+        if (latest != null)
+          _CoverContent(
+            event: latest,
+            swatchColor: swatch,
           )
         else
-          ColoredBox(color: Color(cat.colorValue)),
-        Positioned(
-          top: 8,
-          left: 8,
-          right: 32,
-          child: Container(
-            height: 12,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(4),
+          ColoredBox(color: swatch),
+        // Folder-tab strip — kept for empty folders and photo covers so the
+        // folder metaphor reads. Hidden for text-memo covers so the post-it
+        // title isn't visually crowded by the strip.
+        if (!isTextCover)
+          Positioned(
+            top: 8,
+            left: 8,
+            right: 32,
+            child: Container(
+              height: 12,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
           ),
-        ),
         Positioned(
           right: 8,
           bottom: 8,
@@ -532,20 +557,29 @@ class _FolderCover extends StatelessWidget {
   }
 }
 
-class _CoverImage extends StatelessWidget {
-  final String photoPath;
+/// Renders either the latest memo's photo or — for text-only memos — a
+/// post-it tile carrying that memo's title/body. The swatch is used as
+/// the still-loading placeholder for photo memos so the folder card
+/// doesn't flash to a generic tone tile.
+class _CoverContent extends StatelessWidget {
+  final Event event;
   final Color swatchColor;
-  const _CoverImage({required this.photoPath, required this.swatchColor});
+  const _CoverContent({required this.event, required this.swatchColor});
 
   @override
   Widget build(BuildContext context) {
     return StoredPhoto(
-      photoPath: photoPath,
-      tone: PhotoTone.note, // unused — drawTonePlaceholder is false below
+      photoPath: event.photoPath,
+      tone: event.tone ?? PhotoTone.note,
       width: double.infinity,
       height: double.infinity,
       drawTonePlaceholder: false,
       placeholderColor: swatchColor,
+      memoTitle: event.title,
+      memoBody: event.memoBody,
+      // Folder cover has no overlaid date pill — let the title sit near
+      // the top edge instead of leaving a big empty band.
+      reserveTopBadgeArea: false,
     );
   }
 }

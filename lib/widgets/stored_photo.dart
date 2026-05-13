@@ -20,11 +20,24 @@ class StoredPhoto extends StatelessWidget {
   final BorderRadius borderRadius;
   final BoxFit fit;
 
-  /// When true, the placeholder draws the painted tone art used by sample
-  /// data. When false, a flat [placeholderColor] (or transparent) is used —
-  /// useful for folder covers where the swatch IS the placeholder.
+  /// When true, the placeholder for a still-loading photo draws the painted
+  /// tone art used by sample data. When false, a flat [placeholderColor]
+  /// (or transparent) is used — useful for folder covers where the swatch
+  /// IS the placeholder. Does NOT affect text-only memo rendering — those
+  /// always show the [TextMemoTile] because the tile itself is the content.
   final bool drawTonePlaceholder;
   final Color? placeholderColor;
+
+  /// When [photoPath] is null, these populate the post-it style text memo
+  /// placeholder. Optional: callers in small lists / chips can omit them
+  /// and get the compact "T" glyph instead.
+  final String? memoTitle;
+  final String? memoBody;
+
+  /// Forwarded to [TextMemoTile]. Default leaves room at the top for an
+  /// overlaid date pill (gallery card); folder covers pass false so the
+  /// post-it title sits closer to the top edge.
+  final bool reserveTopBadgeArea;
 
   const StoredPhoto({
     super.key,
@@ -36,6 +49,9 @@ class StoredPhoto extends StatelessWidget {
     this.fit = BoxFit.cover,
     this.drawTonePlaceholder = true,
     this.placeholderColor,
+    this.memoTitle,
+    this.memoBody,
+    this.reserveTopBadgeArea = true,
   });
 
   Widget _flatPlaceholder() {
@@ -64,18 +80,18 @@ class StoredPhoto extends StatelessWidget {
     );
   }
 
-  /// Shown when the memo has no photo at all (text-only). Distinct from
-  /// [_photoPlaceholder] so users can spot text memos at a glance.
+  /// Shown when the memo has no photo at all (text-only). The tile IS
+  /// the content here, so [drawTonePlaceholder] is intentionally ignored.
   Widget _textMemoPlaceholder() {
-    if (!drawTonePlaceholder && placeholderColor != null) {
-      return _flatPlaceholder();
-    }
     return TextMemoTile(
       tone: tone,
       width: width,
       height: height,
       borderRadius: borderRadius,
       elevated: false,
+      title: memoTitle,
+      body: memoBody,
+      reserveTopBadgeArea: reserveTopBadgeArea,
     );
   }
 

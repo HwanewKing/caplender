@@ -4,7 +4,8 @@
 // Receives { photoPath } from an authenticated client. Verifies the JWT,
 // confirms the photo path belongs to that user, downloads the image from
 // Storage using the service-role key, and forwards it to OpenAI with the
-// PRD's classification prompt. Returns parsed { category, reason, content }.
+// Reader/Classifier/Editor role prompt. Returns parsed
+// { title, date, category, content }.
 //
 // Required secrets (set via Dashboard → Edge Functions → Secrets, or
 // `supabase secrets set KEY=VALUE`):
@@ -19,21 +20,88 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const PROMPT = `You are an image classifier and text extractor.
-Classify the attached image into EXACTLY ONE of these categories:
-- memo (handwritten or printed note)
-- receipt (purchase receipt / invoice)
-- business_card (name card with contact info)
-- other (anything that does not clearly fit the three above)
+const PROMPT = `You play three roles simultaneously.
 
-Then extract and organize all readable text from the image.
+<reader>
+A Korean photo-reading specialist with 10 years of experience.
+Read every piece of text from handwriting, printed materials, receipts, business cards, and manuals without omission.
+Do not guess blurry or obscured parts — mark them as "확인 필요".
+Mask personal information (e.g., last digits of resident registration numbers) with *****.
+Normalize dates to YYYY-MM-DD.
+For amounts, this is a Korean service so default to Korean won — write numbers in "12,000원" form. Only keep a different currency symbol if it is visibly printed in the image (e.g., "$25" or "¥3,000" → keep "$25" / "¥3,000"). When the image shows only digits with no currency symbol, append 원. Never insert "$" or other foreign currency symbols on your own.
+Keep foreign-language text as-is in the original language. Do NOT translate.
+</reader>
 
-Respond in Korean using this exact format:
-분류: <메모 | 영수증 | 명함 | 기타>
-근거: <1-2 short sentences in Korean explaining the visual cues that led to this classification>
-내용: <All readable text from the image, organized and cleaned up in Korean. If the category is "기타" and there is no meaningful text, write "텍스트 없음">
+<classifier>
+Classification specialist optimizing for users in their 40s–50s who need to find the photo again later.
+Options: 영수증 | 메모 | 명함 | 설명서 | 기타.
+When multiple signals are mixed, pick the single category that will be most useful when the user searches later.
+If a memo is written on top of a receipt → 메모.
+Product manuals, medication instructions, assembly guides, device usage guides, label instructions → 설명서.
+If it doesn't clearly fit any category, do not force-fit — use 기타.
+</classifier>
 
-Do not output anything else.`;
+<editor>
+Senior responsible for protecting output tone and format.
+Take the reader's extraction and the classifier's category, and produce exactly 4 lines as the final output.
+
+Format (no output other than these 4 lines):
+제목: <Korean, within 15 characters, keyword-focused for easy re-finding>
+날짜: <YYYY-MM-DD | MM-DD | 해당 없음 | 확인 필요>
+카테고리: <영수증 | 메모 | 명함 | 설명서 | 기타>
+내용: <Key text. If there are multiple items, separate them with raw newline characters — one item per line. Write as flowing text, never as a bulleted list.>
+
+Forbidden inside 내용: list/bullet markers of any kind — "-", "•", "*", "·", "▪", numbered prefixes ("1.", "1)", "①"), and "/" used as an item separator. Use a real line break between items instead.
+Forbidden overall: apologies, greetings, meta statements like "이미지를 분석했습니다", code blocks, markdown, emoji, English words (except proper nouns like brand/store names).
+If there is no meaningful text → "내용: 텍스트 없음".
+Receipt without a visible total → "합계: 확인 필요". Business card with an obscured number → "연락처: 확인 필요".
+Foreign-language text inside 내용 must be preserved in its original language without translation.
+
+Exception outputs:
+- Empty input / no image → "입력이 부족합니다" (single line)
+- Image too blurry to read → 제목: 흐린 이미지 / 날짜: 확인 필요 / 카테고리: 기타 / 내용: 텍스트 없음
+- Plain photo with no text → 제목: 일반 사진 / 날짜: 해당 없음 / 카테고리: 기타 / 내용: 텍스트 없음
+</editor>
+
+Final output shows only the 4 lines produced by the editor.
+Do not expose the reader's raw extraction or the classifier's reasoning.
+
+Reference examples:
+
+- Handwritten "5/14 수요일 2시 김원장님 진료" →
+제목: 김원장님 진료 일정
+날짜: 05-14
+카테고리: 메모
+내용: 05-14(수) 14:00 김원장님 진료
+
+- CU receipt, 2025-03-12, 삼각김밥 1,500원 / 음료 2,000원 / 합계 3,500원 →
+제목: CU 편의점 영수증
+날짜: 2025-03-12
+카테고리: 영수증
+내용: CU
+삼각김밥 1,500원
+음료 2,000원
+합계 3,500원
+
+- "홍길동 / ㈜가나다 마케팅팀 과장 / 010-1234-5678" →
+제목: 홍길동 명함 (㈜가나다)
+날짜: 해당 없음
+카테고리: 명함
+내용: 홍길동
+㈜가나다 마케팅팀 과장
+010-1234-5678
+
+- Rice cooker manual page, "취사 버튼을 3초간 누르면 예약 취사 모드" →
+제목: 전기밥솥 예약 취사 사용법
+날짜: 확인 필요
+카테고리: 설명서
+내용: 취사 버튼 3초간 누르기 → 예약 취사 모드 진입
+
+- Receipt with a handwritten memo on top, e.g., a Starbucks receipt with "엄마 생신 케이크값" written on it →
+제목: 엄마 생신 케이크값 메모
+날짜: (date on receipt if visible)
+카테고리: 메모
+내용: Starbucks 영수증 위 메모 "엄마 생신 케이크값"`;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -173,48 +241,72 @@ serve(async (req) => {
   }
 });
 
-// Parses the strict 분류:/근거:/내용: format. Resilient to extra whitespace
-// and multi-line bodies. Falls back to category="other" if parse fails.
+// Parses the strict 제목:/날짜:/카테고리:/내용: format produced by the
+// editor role. Date is returned as the raw string (YYYY-MM-DD | MM-DD |
+// 해당 없음 | 확인 필요) so the client can decide whether to auto-fill the
+// memo date field. Falls back to category="other" if no marker is found
+// (e.g. when the model returned the "입력이 부족합니다" single-line
+// exception output) — in that case the whole text is carried in `content`
+// so the UI can surface it.
 function parseResponse(text: string): {
+  title: string;
+  date: string;
   category: string;
-  reason: string;
   content: string;
 } {
   const lines = text.split(/\r?\n/);
+  let title = "";
+  let date = "";
   let category = "other";
-  let reason = "";
   let content = "";
-  let mode: "category" | "reason" | "content" | null = null;
+  let mode: "title" | "date" | "category" | "content" | null = null;
+  let sawMarker = false;
 
   const categoryMap: Record<string, string> = {
     "메모": "memo",
     "영수증": "receipt",
     "명함": "business_card",
+    "설명서": "manual",
     "기타": "other",
   };
 
   for (const raw of lines) {
     const line = raw.trimEnd();
-    if (line.startsWith("분류:")) {
-      const v = line.slice(3).trim();
+    if (line.startsWith("제목:")) {
+      title = line.slice(3).trim();
+      mode = "title";
+      sawMarker = true;
+    } else if (line.startsWith("날짜:")) {
+      date = line.slice(3).trim();
+      mode = "date";
+      sawMarker = true;
+    } else if (line.startsWith("카테고리:")) {
+      const v = line.slice(5).trim();
       category = categoryMap[v] ?? "other";
       mode = "category";
-    } else if (line.startsWith("근거:")) {
-      reason = line.slice(3).trim();
-      mode = "reason";
+      sawMarker = true;
     } else if (line.startsWith("내용:")) {
       content = line.slice(3).trim();
       mode = "content";
-    } else if (mode === "reason" && line.trim()) {
-      reason += (reason ? "\n" : "") + line;
+      sawMarker = true;
     } else if (mode === "content" && line.trim()) {
-      content += (content ? "\n" : "") + line;
+      content += (content ? "\n" : "") + line.trim();
     }
   }
 
+  if (!sawMarker) {
+    return {
+      title: "",
+      date: "",
+      category: "other",
+      content: text.trim(),
+    };
+  }
+
   return {
+    title: title.trim(),
+    date: date.trim(),
     category,
-    reason: reason.trim(),
     content: content.trim(),
   };
 }

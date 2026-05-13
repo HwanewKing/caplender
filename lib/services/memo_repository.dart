@@ -7,15 +7,21 @@ import 'bootstrap.dart';
 import 'photo_capture_service.dart';
 
 /// Server-side classification result from the `classify-image` Edge Function.
+///
+/// [date] is the raw string the model returned — one of `YYYY-MM-DD`,
+/// `MM-DD`, `해당 없음`, `확인 필요`, or `''`. The UI decides whether to
+/// auto-fill the memo date based on this value.
 class ClassificationResult {
-  final String category; // memo / receipt / business_card / other
-  final String reason;
+  final String category; // memo / receipt / business_card / manual / other
+  final String title;
+  final String date;
   final String content;
   final String raw;
 
   const ClassificationResult({
     required this.category,
-    required this.reason,
+    required this.title,
+    required this.date,
     required this.content,
     required this.raw,
   });
@@ -69,7 +75,8 @@ class MemoRepository {
     }
     return ClassificationResult(
       category: (data['category'] as String?) ?? 'other',
-      reason: (data['reason'] as String?) ?? '',
+      title: (data['title'] as String?) ?? '',
+      date: (data['date'] as String?) ?? '',
       content: (data['content'] as String?) ?? '',
       raw: (data['raw'] as String?) ?? '',
     );
